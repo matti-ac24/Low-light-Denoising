@@ -1,0 +1,5 @@
+name: your_env_name
+dependencies:
+  - numpy
+  - matplotlib
+  - scikit-image
