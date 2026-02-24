@@ -2,8 +2,8 @@
 
 from typing import Type
 from .base import BaseDenoiser
-from .bm3d import BM3DDenoiser
-from .nl_means import NLMeansDenoiser
+from .bm3d_denoiser import BM3DDenoiser
+from .nl_means_denoiser import NLMeansDenoiser
 
 # Registry of available algorithms
 ALGORITHMS = {
