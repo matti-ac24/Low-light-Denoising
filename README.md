@@ -1,15 +1,377 @@
-# Low-light Denoising
+# Low-light Image Denoising Framework
 
-A project for denoising low-light images.
+A modular framework for evaluating and comparing image denoising algorithms. Test different algorithms, visualize results, and compare performance metrics with ease.
 
-## Setup
+## Features
 
-To install all required dependencies, use:
+✨ **Multiple Algorithms**: BM3D and Non-Local Means (NL-Means)  
+📊 **Performance Visualization**: Automatic plot generation for PSNR, MSE, and SSIM  
+⚖️ **Algorithm Comparison**: Side-by-side comparison of multiple algorithms  
+📈 **Quality Metrics**: PSNR, MSE, and SSIM evaluation  
+🎯 **Flexible Datasets**: Built-in test images, synthetic noise, or real-world paired images  
+💾 **Export Results**: CSV metrics and denoised images
 
-conda env update --name <your_env_name> --file dependencies/environment.yaml
+## Quick Start
 
-Instructions coming soon...
+### 1. Setup Environment
+
+```bash
+# Create and activate conda environment
+conda env create -f dependencies/environment.yaml
+conda activate denoising
+
+# Or install manually
+pip install numpy matplotlib scikit-image bm3d
+```
+
+### 2. Run Your First Test
+
+```bash
+cd src
+python -m denoiser --test bm3d --plot
+```
+
+This will:
+- Run BM3D on 3 built-in test images
+- Display performance metrics (PSNR, MSE, SSIM)
+- Generate a comparison plot showing noisy vs denoised results
 
 ## Usage
 
-Instructions coming soon...
+### Basic Commands
+
+**Test a single algorithm:**
+```bash
+python -m denoiser --test bm3d
+python -m denoiser --test nl-means
+```
+
+**Compare multiple algorithms:**
+```bash
+python -m denoiser --test bm3d nl-means --plot
+```
+
+**Save results with plots:**
+```bash
+python -m denoiser --test bm3d --output results/bm3d --save-images --plot
+```
+
+### Dataset Options
+
+**Built-in test images** (camera, astronaut, text):
+```bash
+python -m denoiser --test bm3d
+```
+
+**Synthetic noise** (add noise to clean images):
+```bash
+python -m denoiser --synthetic bm3d --dataset-path ./data/clean_images --sigma 0.15
+```
+
+**Real-world paired images** (clean/noisy pairs):
+```bash
+python -m denoiser --real-world bm3d --dataset-path ./data/paired_images
+```
+
+### Algorithm Parameters
+
+**BM3D:**
+```bash
+python -m denoiser --test bm3d --sigma 0.15
+```
+
+**NL-Means with custom parameters:**
+```bash
+python -m denoiser --test nl-means --patch-size 7 --patch-distance 8 --sigma 0.12
+```
+
+### Comparison Mode
+
+Compare BM3D and NL-Means on the same dataset:
+
+```bash
+# Explicit comparison
+python -m denoiser --test --compare bm3d nl-means --output results/comparison --plot
+
+# Implicit (specifying multiple algorithms automatically enables comparison)
+python -m denoiser --test bm3d nl-means --output results/comparison --plot
+```
+
+## CLI Flags Reference
+
+### Required: Dataset Type (choose one)
+- `--test` - Use built-in test images
+- `--synthetic` - Add synthetic noise to clean images (requires `--dataset-path`)
+- `--real-world` - Use real-world noisy/clean pairs (requires `--dataset-path`)
+
+### Algorithm Selection
+- `algorithm(s)` - One or more: `bm3d`, `nl-means`, `nlmeans`
+
+### Dataset Configuration
+- `--dataset-path PATH` - Path to image directory
+- `--sigma FLOAT` - Noise level (default: 0.1)
+
+### Algorithm Parameters
+- `--patch-size INT` - Patch size for NL-Means (default: 5)
+- `--patch-distance INT` - Patch search distance for NL-Means (default: 6)
+
+### Output Options
+- `--output DIR` - Save results to directory (default: `results/`)
+- `--save-images` - Save denoised images as PNG files
+- `--plot` - Generate performance plots
+- `--show-plot` - Display plots interactively
+- `--show-images` - Display side-by-side comparison of noisy and denoised images
+- `--num-display INT` - Number of random images to display with `--show-images` (default: 3)
+- `--quiet` - Suppress verbose output
+
+### Comparison Mode
+- `--compare` - Enable comparison mode (optional if multiple algorithms specified)
+
+## Output Files
+
+### Single Algorithm Mode
+```
+results/
+├── metrics.csv                    # Performance metrics for each image
+├── metrics_plot_bm3d.png         # Visualization: noisy vs denoised
+└── denoised_images/              # (if --save-images used)
+    ├── camera_denoised.png
+    ├── astronaut_denoised.png
+    └── text_denoised.png
+```
+
+### Comparison Mode
+```
+results/
+├── comparison_summary.csv               # All algorithms in one file
+├── comparison_bm3d_vs_nlmeans.png      # Side-by-side comparison
+└── denoised_images/                    # (if --save-images used)
+    ├── BM3D_camera_denoised.png
+    ├── NLMeans_camera_denoised.png
+    └── ...
+```
+
+## Example Workflows
+
+### 1. Quick Algorithm Test
+```bash
+# Test BM3D and see results
+python -m denoiser --test bm3d --plot
+```
+
+### 2. Compare Algorithms
+```bash
+# Compare BM3D vs NL-Means and save everything
+python -m denoiser --test bm3d nl-means \
+    --output results/comparison \
+    --plot --save-images
+```
+
+### 3. Custom Noise Level Evaluation
+```bash
+# Test on your images with specific noise level
+python -m denoiser --synthetic bm3d \
+    --dataset-path ./my_clean_images \
+    --sigma 0.2 \
+    --output results/high_noise \
+    --plot --save-images
+```
+
+### 4. Batch Processing (Quiet Mode)
+```bash
+# Run comparison without verbose output
+python -m denoiser --test bm3d nl-means \
+    --output results/batch_run \
+    --plot --quiet
+```
+
+### 5. Visual Image Comparison
+```bash
+# Display side-by-side comparison of noisy and denoised images
+python -m denoiser --test bm3d --show-images
+
+# Compare multiple algorithms visually
+python -m denoiser --test bm3d nl-means --show-images --num-display 2
+```
+
+## Performance Metrics
+
+The framework calculates three quality metrics:
+
+- **PSNR** (Peak Signal-to-Noise Ratio): Higher is better. Typical range: 20-40 dB
+- **MSE** (Mean Squared Error): Lower is better. Range: 0-1
+- **SSIM** (Structural Similarity Index): Higher is better. Range: 0-1
+
+All metrics compare the denoised image against the clean reference image.
+
+## Project Structure
+
+```
+Low-light-Denoising/
+├── src/
+│   └── denoiser/              # Main package
+│       ├── __init__.py
+│       ├── __main__.py        # CLI entry point
+│       ├── evaluator.py       # Evaluation and comparison logic
+│       ├── algorithms/        # Denoising algorithms
+│       │   ├── bm3d_denoiser.py
+│       │   └── nl_means_denoiser.py
+│       ├── datasets/          # Dataset loaders
+│       │   └── loader.py
+│       └── utils/            # Metrics and utilities
+│           ├── metrics.py
+│           └── noise.py
+├── data/                     # Your datasets
+├── dependencies/
+│   └── environment.yaml      # Conda environment
+└── README.md
+```
+
+## Adding Your Own Images
+
+### For Synthetic Noise Testing
+Place clean images in a folder:
+```bash
+mkdir -p data/my_images
+cp your_images/*.png data/my_images/
+
+python -m denoiser --synthetic bm3d --dataset-path data/my_images --plot
+```
+
+### For Real-World Paired Images
+Organize as clean/noisy pairs:
+```bash
+mkdir -p data/paired/clean data/paired/noisy
+# Place matching clean and noisy images in respective folders
+
+python -m denoiser --real-world bm3d --dataset-path data/paired --plot
+```
+
+## Troubleshooting
+
+**"Module not found" error:**
+- Activate conda environment: `conda activate denoising`
+- Or install dependencies: `pip install numpy matplotlib scikit-image bm3d`
+
+**BM3D errors:**
+- Check you have `bm3d` installed: `pip install bm3d`
+- Try updating: `pip install -U bm3d`
+
+**No images loaded:**
+- Check your `--dataset-path` is correct
+- Ensure images are in PNG or JPG format
+
+## Programmatic Usage
+
+Beyond the CLI, you can use the package directly in Python scripts:
+
+### Single Algorithm Evaluation
+
+```python
+from denoiser.algorithms import BM3DDenoiser
+from denoiser.datasets import get_dataset_loader
+from denoiser.evaluator import Evaluator
+
+# Load dataset
+loader = get_dataset_loader('test', noise_sigma=0.1)
+
+# Initialize algorithm
+algorithm = BM3DDenoiser(sigma_psd=0.1)
+
+# Create evaluator and run
+evaluator = Evaluator(algorithm, loader, verbose=True)
+results = evaluator.evaluate()
+
+# Save results and generate plots
+evaluator.save_results('output/', save_images=True)
+evaluator.plot_results('output/', show_plot=True)
+evaluator.show_image_comparison(num_images=3)
+```
+
+### Algorithm Comparison
+
+```python
+from denoiser.algorithms import BM3DDenoiser, NLMeansDenoiser
+from denoiser.datasets import get_dataset_loader
+from denoiser.evaluator import ComparisonEvaluator
+
+# Load dataset
+loader = get_dataset_loader('test', noise_sigma=0.1)
+
+# Initialize algorithms
+bm3d = BM3DDenoiser(sigma_psd=0.1)
+nlmeans = NLMeansDenoiser(sigma=0.1)
+
+# Create comparison evaluator
+comparison = ComparisonEvaluator([bm3d, nlmeans], loader, verbose=True)
+
+# Run comparison
+all_results = comparison.evaluate_all()
+
+# Save and display results
+comparison.save_comparison_summary('output/')
+comparison.plot_comparison('output/', show_plot=True)
+comparison.show_image_comparison(num_images=2)
+```
+
+## Adding New Algorithms
+
+To extend the framework with your own denoising algorithm:
+
+### Step 1: Create Algorithm File
+
+Create a new file in `src/denoiser/algorithms/` (e.g., `cnn_denoiser.py`):
+
+```python
+from .base import BaseDenoiser
+import numpy as np
+
+class CNNDenoiser(BaseDenoiser):
+    """CNN-based denoising algorithm."""
+    
+    def __init__(self, model_path: str = None, **kwargs) -> None:
+        super().__init__(model_path=model_path, **kwargs)
+        self.model_path = model_path
+        # Load your model here
+    
+    def denoise(self, noisy_image: np.ndarray) -> np.ndarray:
+        """Apply CNN denoising to image."""
+        # Implement your algorithm
+        denoised = ...  # Your implementation
+        return denoised
+```
+
+### Step 2: Register Algorithm
+
+Add to `src/denoiser/algorithms/__init__.py`:
+
+```python
+from .cnn_denoiser import CNNDenoiser
+
+ALGORITHMS = {
+    'bm3d': BM3DDenoiser,
+    'nl-means': NLMeansDenoiser,
+    'cnn': CNNDenoiser,  # Your new algorithm
+}
+```
+
+### Step 3: Use Your Algorithm
+
+```bash
+python -m denoiser --test cnn --output results/cnn_test
+```
+
+**Requirements for custom algorithms:**
+- Inherit from `BaseDenoiser` class
+- Implement `denoise(noisy_image)` method that takes and returns a NumPy array
+- Images are in float format (0-1 range)
+- Support both grayscale (H×W) and RGB (H×W×3) images
+
+## Algorithm Comparison Results
+
+Typical performance on test images:
+
+| Algorithm | Avg PSNR Improvement | Speed (per image) | Best For |
+|-----------|---------------------|-------------------|----------|
+| BM3D      | ~9-10 dB           | 5-15 seconds     | Maximum quality |
+| NL-Means  | ~8 dB              | 0.2-0.7 seconds  | Speed/quality balance |
