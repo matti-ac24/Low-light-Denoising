@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional, Any
+from typing import Optional, Any
 from skimage import io, img_as_float, data as skimage_data
 from pathlib import Path
 
@@ -29,7 +29,7 @@ class DatasetLoader:
                 raise FileNotFoundError(f"Dataset path not found: {self.dataset_path}")
     
     # Load images based on dataset type
-    def load_images(self) -> List[Dict[str, Any]]:
+    def load_images(self) -> list[dict[str, Any]]:
     
         if self.dataset_type == 'test':
             return self._load_test_images()
@@ -39,7 +39,7 @@ class DatasetLoader:
             return self._load_real_world_images()
     
     # Load built-in test images from scikit-image
-    def _load_test_images(self) -> List[Dict[str, Any]]:
+    def _load_test_images(self) -> list[dict[str, Any]]:
     
         from ..utils.noise import add_awgn
         
@@ -68,7 +68,7 @@ class DatasetLoader:
         return test_images
     
     # Load images and add synthetic noise
-    def _load_synthetic_images(self) -> List[Dict[str, Any]]:
+    def _load_synthetic_images(self) -> list[dict[str, Any]]:
     
         from ..utils.noise import add_awgn
         import re
@@ -105,7 +105,7 @@ class DatasetLoader:
         return images
     
     # Load real-world noisy images with paired clean references from clean/ and noisy/ subdirectories
-    def _load_real_world_images(self) -> List[Dict[str, Any]]:
+    def _load_real_world_images(self) -> list[dict[str, Any]]:
     
         import re
         

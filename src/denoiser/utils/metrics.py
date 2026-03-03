@@ -1,6 +1,6 @@
 # All image quality metrics for the evaluation process
 
-from typing import Dict, Optional
+from typing import Optional
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 import numpy as np
 
@@ -28,7 +28,7 @@ def calculate_ssim(image1: np.ndarray, image2: np.ndarray, data_range: float = 1
     )
 
 # Calculate all available metrics (MSE, PSNR, SSIM)
-def calculate_all_metrics(reference: np.ndarray, denoised: np.ndarray, data_range: float = 1.0) -> Dict[str, float]:
+def calculate_all_metrics(reference: np.ndarray, denoised: np.ndarray, data_range: float = 1.0) -> dict[str, float]:
 
     metrics = {
         'mse': calculate_mse(reference, denoised),

@@ -4,7 +4,7 @@ import time
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-from typing import List, Dict, Any, Union
+from typing import Any, Union
 
 from .utils.metrics import calculate_all_metrics
 
@@ -20,7 +20,7 @@ class Evaluator:
         self.results = []
     
     # Run evaluation on the dataset and return its results
-    def evaluate(self) -> List[Dict[str, Any]]:
+    def evaluate(self) -> list[dict[str, Any]]:
 
         if self.verbose:
             print(f"\n{'='*70}")
@@ -65,7 +65,7 @@ class Evaluator:
         return self.results
     
     # Process a single image and return its metrics
-    def _process_image(self, image_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _process_image(self, image_data: dict[str, Any]) -> dict[str, Any]:
 
         clean = image_data['clean']
         noisy = image_data['noisy']
@@ -91,7 +91,7 @@ class Evaluator:
         }
     
     # Print results for a single image
-    def _print_result(self, result: Dict[str, Any]) -> None:
+    def _print_result(self, result: dict[str, Any]) -> None:
 
         print(f"  Processing time: {result['processing_time']:.3f}s")
         
@@ -324,7 +324,7 @@ class Evaluator:
 class ComparisonEvaluator:
 
     # Initialise comparison evaluator with multiple algorithms and dataset loader
-    def __init__(self, algorithms: List[Any], dataset_loader: Any, verbose: bool = True) -> None:
+    def __init__(self, algorithms: list[Any], dataset_loader: Any, verbose: bool = True) -> None:
 
         self.algorithms = algorithms
         self.dataset_loader = dataset_loader
@@ -332,7 +332,7 @@ class ComparisonEvaluator:
         self.all_results = {}  # Dictionary mapping algorithm name to results
     
     # Run evaluation for all algorithms and return combined results
-    def evaluate_all(self) -> Dict[str, List[Dict[str, Any]]]:
+    def evaluate_all(self) -> dict[str, list[dict[str, Any]]]:
 
         if self.verbose:
             print(f"\n{'='*70}")
