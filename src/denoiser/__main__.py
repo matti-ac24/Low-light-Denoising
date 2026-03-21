@@ -22,6 +22,9 @@ Examples:
   
   # Run NL-Means on synthetic noisy images
   python -m denoiser --synthetic nl-means --dataset-path ./datasets/images
+
+    # Run Residual U-Net CNN with pretrained weights
+    python -m denoiser --test resunet --model-path ./models/resunet.pth --device cpu
   
   # Compare algorithms side-by-side
   python -m denoiser --test --compare bm3d nl-means --output results/comparison --plot
@@ -97,6 +100,27 @@ Examples:
         default=6,
         help='Patch search distance for NL-Means (default: 6)'
     )
+
+    parser.add_argument(
+        '--model-path',
+        type=str,
+        default=None,
+        help='Path to pretrained CNN weights (.pt/.pth) for ResUNet'
+    )
+
+    parser.add_argument(
+        '--base-channels',
+        type=int,
+        default=32,
+        help='Base feature channels for ResUNet architecture (default: 32)'
+    )
+
+    parser.add_argument(
+        '--device',
+        type=str,
+        default='auto',
+        help="Runtime device for CNN inference: 'auto', 'cpu', or 'cuda'"
+    )
     
     # Output options
     parser.add_argument(
@@ -153,6 +177,12 @@ def build_algorithm_params(algorithm_name: str, args: argparse.Namespace) -> dic
             'patch_size': args.patch_size,
             'patch_distance': args.patch_distance,
             'sigma': args.sigma
+        }
+    if algorithm_name in ['resunet', 'res-unet', 'residual-unet']:
+        return {
+            'model_path': args.model_path,
+            'base_channels': args.base_channels,
+            'device': args.device,
         }
     else:  # BM3D and other algorithms
         return {'sigma_psd': args.sigma}

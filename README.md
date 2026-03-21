@@ -4,7 +4,7 @@ A modular framework for evaluating and comparing image denoising algorithms. Tes
 
 ## Features
 
-✨ **Multiple Algorithms**: BM3D and Non-Local Means (NL-Means)  
+✨ **Multiple Algorithms**: BM3D, Non-Local Means (NL-Means), and Residual U-Net (ResUNet)  
 📊 **Performance Visualization**: Automatic plot generation for PSNR, MSE, and SSIM  
 ⚖️ **Algorithm Comparison**: Side-by-side comparison of multiple algorithms  
 📈 **Quality Metrics**: PSNR, MSE, and SSIM evaluation  
@@ -21,7 +21,7 @@ conda env create -f dependencies/environment.yaml
 conda activate denoising
 
 # Or install manually
-pip install numpy matplotlib scikit-image bm3d
+pip install numpy matplotlib scikit-image bm3d torch tqdm
 ```
 
 ### 2. Run Your First Test
@@ -44,11 +44,13 @@ This will:
 ```bash
 python -m denoiser --test bm3d
 python -m denoiser --test nl-means
+python -m denoiser --test resunet --model-path ./models/weights/resunet.pth --device cpu
 ```
 
 **Compare multiple algorithms:**
 ```bash
 python -m denoiser --test bm3d nl-means --plot
+python -m denoiser --test bm3d nl-means resunet --model-path ./models/weights/resunet.pth --device cpu --plot
 ```
 
 **Save results with plots:**
@@ -85,6 +87,11 @@ python -m denoiser --test bm3d --sigma 0.15
 python -m denoiser --test nl-means --patch-size 7 --patch-distance 8 --sigma 0.12
 ```
 
+**ResUNet with pretrained weights:**
+```bash
+python -m denoiser --test resunet --model-path ./models/weights/resunet.pth --base-channels 32 --device cpu
+```
+
 ### Comparison Mode
 
 Compare BM3D and NL-Means on the same dataset:
@@ -105,7 +112,7 @@ python -m denoiser --test bm3d nl-means --output results/comparison --plot
 - `--real-world` - Use real-world noisy/clean pairs (requires `--dataset-path`)
 
 ### Algorithm Selection
-- `algorithm(s)` - One or more: `bm3d`, `nl-means`, `nlmeans`
+- `algorithm(s)` - One or more: `bm3d`, `nl-means`, `nlmeans`, `resunet`, `res-unet`, `residual-unet`
 
 ### Dataset Configuration
 - `--dataset-path PATH` - Path to image directory
@@ -114,6 +121,9 @@ python -m denoiser --test bm3d nl-means --output results/comparison --plot
 ### Algorithm Parameters
 - `--patch-size INT` - Patch size for NL-Means (default: 5)
 - `--patch-distance INT` - Patch search distance for NL-Means (default: 6)
+- `--model-path PATH` - Path to pretrained `.pt/.pth` weights for ResUNet
+- `--base-channels INT` - Base channels for ResUNet (default: 32)
+- `--device STR` - Runtime device for ResUNet (`auto`, `cpu`, `cuda`)
 
 ### Output Options
 - `--output DIR` - Save results to directory (default: `results/`)
@@ -194,6 +204,16 @@ python -m denoiser --test bm3d --show-images
 python -m denoiser --test bm3d nl-means --show-images --num-display 2
 ```
 
+### 6. Train ResUNet (AWGN benchmark setup)
+```bash
+# Train using clean benchmark split (noise is added synthetically during training)
+python src/models/training/train_resunet.py \
+    --dataset-path ./data/benchmark/clean/train \
+    --sigma 0.1 \
+    --device cpu \
+    --save-path ./src/models/weights/resunet.pth
+```
+
 ## Performance Metrics
 
 The framework calculates three quality metrics:
@@ -209,18 +229,23 @@ All metrics compare the denoised image against the clean reference image.
 ```
 Low-light-Denoising/
 ├── src/
-│   └── denoiser/              # Main package
-│       ├── __init__.py
-│       ├── __main__.py        # CLI entry point
-│       ├── evaluator.py       # Evaluation and comparison logic
-│       ├── algorithms/        # Denoising algorithms
-│       │   ├── bm3d_denoiser.py
-│       │   └── nl_means_denoiser.py
-│       ├── datasets/          # Dataset loaders
-│       │   └── loader.py
-│       └── utils/            # Metrics and utilities
-│           ├── metrics.py
-│           └── noise.py
+│   ├── denoiser/              # Main package
+│   │   ├── __init__.py
+│   │   ├── __main__.py        # CLI entry point
+│   │   ├── evaluator.py       # Evaluation and comparison logic
+│   │   ├── algorithms/        # Denoising algorithms
+│   │   │   ├── bm3d_denoiser.py
+│   │   │   ├── nl_means_denoiser.py
+│   │   │   └── resunet_denoiser.py
+│   │   ├── datasets/          # Dataset loaders
+│   │   │   └── loader.py
+│   │   └── utils/            # Metrics and utilities
+│   │       ├── metrics.py
+│   │       └── noise.py
+│   └── models/
+│       ├── training/
+│       │   └── train_resunet.py
+│       └── weights/
 ├── data/                     # Your datasets
 ├── dependencies/
 │   └── environment.yaml      # Conda environment
@@ -251,11 +276,15 @@ python -m denoiser --real-world bm3d --dataset-path data/paired --plot
 
 **"Module not found" error:**
 - Activate conda environment: `conda activate denoising`
-- Or install dependencies: `pip install numpy matplotlib scikit-image bm3d`
+- Or install dependencies: `pip install numpy matplotlib scikit-image bm3d torch tqdm`
 
 **BM3D errors:**
 - Check you have `bm3d` installed: `pip install bm3d`
 - Try updating: `pip install -U bm3d`
+
+**ResUNet errors:**
+- Ensure `torch` is installed in the same environment used to run commands
+- Provide `--model-path` when running `resunet`
 
 **No images loaded:**
 - Check your `--dataset-path` is correct
@@ -291,7 +320,7 @@ evaluator.show_image_comparison(num_images=3)
 ### Algorithm Comparison
 
 ```python
-from denoiser.algorithms import BM3DDenoiser, NLMeansDenoiser
+from denoiser.algorithms import BM3DDenoiser, NLMeansDenoiser, ResUNetDenoiser
 from denoiser.datasets import get_dataset_loader
 from denoiser.evaluator import ComparisonEvaluator
 
@@ -301,9 +330,10 @@ loader = get_dataset_loader('test', noise_sigma=0.1)
 # Initialize algorithms
 bm3d = BM3DDenoiser(sigma_psd=0.1)
 nlmeans = NLMeansDenoiser(sigma=0.1)
+resunet = ResUNetDenoiser(model_path='models/weights/resunet.pth', device='cpu')
 
 # Create comparison evaluator
-comparison = ComparisonEvaluator([bm3d, nlmeans], loader, verbose=True)
+comparison = ComparisonEvaluator([bm3d, nlmeans, resunet], loader, verbose=True)
 
 # Run comparison
 all_results = comparison.evaluate_all()
@@ -328,12 +358,12 @@ import numpy as np
 
 class CNNDenoiser(BaseDenoiser):
     """CNN-based denoising algorithm."""
-    
+
     def __init__(self, model_path: str = None, **kwargs) -> None:
         super().__init__(model_path=model_path, **kwargs)
         self.model_path = model_path
         # Load your model here
-    
+
     def denoise(self, noisy_image: np.ndarray) -> np.ndarray:
         """Apply CNN denoising to image."""
         # Implement your algorithm
@@ -375,3 +405,4 @@ Typical performance on test images:
 |-----------|---------------------|-------------------|----------|
 | BM3D      | ~9-10 dB           | 5-15 seconds     | Maximum quality |
 | NL-Means  | ~8 dB              | 0.2-0.7 seconds  | Speed/quality balance |
+| ResUNet   | Depends on training | Fast inference   | Learned denoising patterns |

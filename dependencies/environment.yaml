@@ -4,3 +4,4 @@ dependencies:
   - matplotlib
   - scikit-image
   - bm3d
+  - pytorch
