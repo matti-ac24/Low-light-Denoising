@@ -1,4 +1,5 @@
 from typing import Optional, Any
+import random
 from skimage import io, img_as_float, data as skimage_data
 from pathlib import Path
 
@@ -7,11 +8,21 @@ from pathlib import Path
 class DatasetLoader:
 
     # Initialise dataset loader with type, path, and noise level
-    def __init__(self, dataset_type: str, dataset_path: Optional[str] = None, noise_sigma: float = 0.1) -> None:
+    def __init__(
+        self,
+        dataset_type: str,
+        dataset_path: Optional[str] = None,
+        noise_sigma: float = 0.1,
+        max_images: Optional[int] = None,
+        sample_seed: int = 42,
+    ) -> None:
         
         self.dataset_type = dataset_type.lower()
         self.dataset_path = Path(dataset_path) if dataset_path else None
         self.noise_sigma = noise_sigma
+        self.max_images = max_images
+        self.sample_seed = sample_seed
+        self._cached_images: Optional[list[dict[str, Any]]] = None
         
         # Validate dataset type
         valid_types = ['synthetic', 'real-world', 'test']
@@ -27,16 +38,42 @@ class DatasetLoader:
                 raise ValueError("dataset_path required for 'real-world' datasets")
             if not self.dataset_path.exists():
                 raise FileNotFoundError(f"Dataset path not found: {self.dataset_path}")
+
+        if self.max_images is not None and self.max_images < 1:
+            raise ValueError("max_images must be >= 1 when provided")
     
     # Load images based on dataset type
     def load_images(self) -> list[dict[str, Any]]:
+
+        if self._cached_images is not None:
+            return self._cached_images
     
         if self.dataset_type == 'test':
-            return self._load_test_images()
+            images = self._load_test_images()
         elif self.dataset_type == 'synthetic':
-            return self._load_synthetic_images()
+            images = self._load_synthetic_images()
         elif self.dataset_type == 'real-world':
-            return self._load_real_world_images()
+            images = self._load_real_world_images()
+        else:
+            images = []
+
+        images = self._select_subset(images)
+        self._cached_images = images
+        return images
+
+    # Optionally select a deterministic random subset of images
+    def _select_subset(self, images: list[dict[str, Any]]) -> list[dict[str, Any]]:
+
+        if self.max_images is None or len(images) <= self.max_images:
+            return images
+
+        rng = random.Random(self.sample_seed)
+        selected = rng.sample(images, self.max_images)
+        selected_names = ', '.join(item['name'] for item in selected)
+        print(
+            f"Info: Using {self.max_images} randomly selected image(s) out of {len(images)}: {selected_names}"
+        )
+        return selected
     
     # Load built-in test images from scikit-image
     def _load_test_images(self) -> list[dict[str, Any]]:

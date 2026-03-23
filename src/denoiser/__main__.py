@@ -85,6 +85,19 @@ Examples:
         default=0.1,
         help='Noise standard deviation for synthetic datasets (default: 0.1)'
     )
+
+    parser.add_argument(
+        '--single-image',
+        action='store_true',
+        help='Automatically select one random image from the dataset for a fast run'
+    )
+
+    parser.add_argument(
+        '--sample-seed',
+        type=int,
+        default=42,
+        help='Random seed used for image sampling (default: 42)'
+    )
     
     # Algorithm parameters
     parser.add_argument(
@@ -213,7 +226,9 @@ def main() -> int:
         dataset_loader = get_dataset_loader(
             dataset_type=dataset_type,
             dataset_path=args.dataset_path,
-            noise_sigma=args.sigma
+            noise_sigma=args.sigma,
+            max_images=1 if args.single_image else None,
+            sample_seed=args.sample_seed,
         )
         
         # Check if comparison mode (multiple algorithms or --compare flag)
