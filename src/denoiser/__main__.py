@@ -8,6 +8,162 @@ from .algorithms import get_algorithm, ALGORITHMS
 from .datasets import get_dataset_loader
 from .evaluator import Evaluator, ComparisonEvaluator
 
+
+def parse_sigma_sweep(sigma_sweep_arg: str) -> list[float]:
+
+    values = [item.strip() for item in sigma_sweep_arg.split(',') if item.strip()]
+    if not values:
+        raise ValueError("--sigma-sweep must contain at least one sigma value")
+
+    sigmas = []
+    for value in values:
+        sigma = float(value)
+        if sigma <= 0:
+            raise ValueError("Sigma values in --sigma-sweep must be > 0")
+        sigmas.append(sigma)
+
+    return sigmas
+
+
+def run_sigma_sweep(
+    args: argparse.Namespace,
+    dataset_type: str,
+    algorithms_list: list[str],
+    is_comparison: bool,
+) -> int:
+
+    import csv
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    sigma_values = parse_sigma_sweep(args.sigma_sweep)
+
+    if dataset_type != 'synthetic':
+        raise ValueError("--sigma-sweep is supported only with --synthetic datasets")
+
+    output_dir = Path(args.output) if args.output else Path('results/sigma_sweep')
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if not args.quiet:
+        print(f"\nRunning sigma sweep for values: {sigma_values}")
+
+    algo_metrics: dict[str, dict[str, list[float]]] = {}
+    for algo_name in algorithms_list:
+        algorithm_class = get_algorithm(algo_name)
+        display_name = algorithm_class(**build_algorithm_params(algo_name, args)).name
+        if display_name not in algo_metrics:
+            algo_metrics[display_name] = {'psnr': [], 'ssim': []}
+
+    for sigma in sigma_values:
+        if not args.quiet:
+            print(f"\n{'-'*70}")
+            print(f"Sigma sweep step: σ={sigma:.3f}")
+            print(f"{'-'*70}")
+
+        dataset_loader = get_dataset_loader(
+            dataset_type=dataset_type,
+            dataset_path=args.dataset_path,
+            noise_sigma=sigma,
+            max_images=1 if args.single_image else None,
+            sample_seed=args.sample_seed,
+        )
+
+        if is_comparison:
+            algorithms = []
+            for algo_name in algorithms_list:
+                algorithm_class = get_algorithm(algo_name)
+                algo_params = build_algorithm_params(algo_name, args)
+                algorithms.append(algorithm_class(**algo_params))
+
+            comparison_evaluator = ComparisonEvaluator(
+                algorithms=algorithms,
+                dataset_loader=dataset_loader,
+                verbose=not args.quiet,
+            )
+            all_results = comparison_evaluator.evaluate_all()
+
+            for algo_display_name, results in all_results.items():
+                denoised_psnr = [r['denoised_metrics']['psnr'] for r in results]
+                denoised_ssim = [r['denoised_metrics']['ssim'] for r in results]
+                algo_metrics[algo_display_name]['psnr'].append(float(np.mean(denoised_psnr)))
+                algo_metrics[algo_display_name]['ssim'].append(float(np.mean(denoised_ssim)))
+        else:
+            algorithm_name = algorithms_list[0]
+            algorithm_class = get_algorithm(algorithm_name)
+            algo_params = build_algorithm_params(algorithm_name, args)
+            algorithm = algorithm_class(**algo_params)
+
+            evaluator = Evaluator(
+                algorithm=algorithm,
+                dataset_loader=dataset_loader,
+                verbose=not args.quiet,
+            )
+            results = evaluator.evaluate()
+
+            denoised_psnr = [r['denoised_metrics']['psnr'] for r in results]
+            denoised_ssim = [r['denoised_metrics']['ssim'] for r in results]
+            algo_metrics[algorithm.name]['psnr'].append(float(np.mean(denoised_psnr)))
+            algo_metrics[algorithm.name]['ssim'].append(float(np.mean(denoised_ssim)))
+
+    summary_csv_path = output_dir / 'sigma_sweep_summary.csv'
+    with open(summary_csv_path, 'w', newline='') as f:
+        fieldnames = ['sigma', 'algorithm', 'avg_psnr', 'avg_ssim']
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+
+        for idx, sigma in enumerate(sigma_values):
+            for algo_name, metrics in algo_metrics.items():
+                writer.writerow(
+                    {
+                        'sigma': sigma,
+                        'algorithm': algo_name,
+                        'avg_psnr': metrics['psnr'][idx],
+                        'avg_ssim': metrics['ssim'][idx],
+                    }
+                )
+
+    # PSNR vs sigma line graph
+    plt.figure(figsize=(8, 5))
+    for algo_name, metrics in algo_metrics.items():
+        plt.plot(sigma_values, metrics['psnr'], marker='o', linewidth=2, label=algo_name)
+    plt.xlabel('Sigma (noise std)')
+    plt.ylabel('Average PSNR (dB)')
+    plt.title('PSNR vs Sigma')
+    plt.grid(alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    psnr_plot_path = output_dir / 'psnr_vs_sigma.png'
+    plt.savefig(psnr_plot_path, dpi=150, bbox_inches='tight')
+    if args.show_plot:
+        plt.show()
+    else:
+        plt.close()
+
+    # SSIM vs sigma line graph
+    plt.figure(figsize=(8, 5))
+    for algo_name, metrics in algo_metrics.items():
+        plt.plot(sigma_values, metrics['ssim'], marker='o', linewidth=2, label=algo_name)
+    plt.xlabel('Sigma (noise std)')
+    plt.ylabel('Average SSIM')
+    plt.title('SSIM vs Sigma')
+    plt.grid(alpha=0.3)
+    plt.ylim(0, 1)
+    plt.legend()
+    plt.tight_layout()
+    ssim_plot_path = output_dir / 'ssim_vs_sigma.png'
+    plt.savefig(ssim_plot_path, dpi=150, bbox_inches='tight')
+    if args.show_plot:
+        plt.show()
+    else:
+        plt.close()
+
+    if not args.quiet:
+        print(f"\nSigma sweep summary saved to: {summary_csv_path}")
+        print(f"PSNR plot saved to: {psnr_plot_path}")
+        print(f"SSIM plot saved to: {ssim_plot_path}")
+
+    return 0
+
 # Define all the command-line argument options
 def parse_args() -> argparse.Namespace:
 
@@ -84,6 +240,13 @@ Examples:
         type=float,
         default=0.1,
         help='Noise standard deviation for synthetic datasets (default: 0.1)'
+    )
+
+    parser.add_argument(
+        '--sigma-sweep',
+        type=str,
+        default=None,
+        help='Comma-separated sigma values for sweep plots (e.g. 0.05,0.1,0.15)'
     )
 
     parser.add_argument(
@@ -222,6 +385,13 @@ def main() -> int:
         sys.exit(1)
     
     try:
+        # Check if comparison mode (multiple algorithms or --compare flag)
+        algorithms_list = args.algorithm if isinstance(args.algorithm, list) else [args.algorithm]
+        is_comparison = args.compare or len(algorithms_list) > 1
+
+        if args.sigma_sweep:
+            return run_sigma_sweep(args, dataset_type, algorithms_list, is_comparison)
+
         # Load dataset
         dataset_loader = get_dataset_loader(
             dataset_type=dataset_type,
@@ -230,10 +400,6 @@ def main() -> int:
             max_images=1 if args.single_image else None,
             sample_seed=args.sample_seed,
         )
-        
-        # Check if comparison mode (multiple algorithms or --compare flag)
-        algorithms_list = args.algorithm if isinstance(args.algorithm, list) else [args.algorithm]
-        is_comparison = args.compare or len(algorithms_list) > 1
         
         if is_comparison:
             # Comparison mode: multiple algorithms
