@@ -7,6 +7,7 @@ A modular framework for evaluating and comparing image denoising algorithms. Tes
 ✨ **Multiple Algorithms**: BM3D, Non-Local Means (NL-Means), and Residual U-Net (ResUNet)  
 📊 **Performance Visualization**: Automatic plot generation for PSNR, MSE, and SSIM  
 ⚖️ **Algorithm Comparison**: Side-by-side comparison of multiple algorithms  
+📉 **Sigma Sweep Curves**: Line plots for PSNR vs σ and SSIM vs σ across algorithms  
 📈 **Quality Metrics**: PSNR, MSE, and SSIM evaluation  
 🎯 **Flexible Datasets**: Built-in test images, synthetic noise, or real-world paired images  
 💾 **Export Results**: CSV metrics and denoised images
@@ -102,6 +103,21 @@ python -m denoiser --test --compare bm3d nl-means --output results/comparison --
 
 # Implicit (specifying multiple algorithms automatically enables comparison)
 python -m denoiser --test bm3d nl-means --output results/comparison --plot
+
+# Fast comparison on one automatically selected image
+python -m denoiser --synthetic --compare bm3d nl-means resunet \
+    --dataset-path ../data/benchmark/clean/test \
+    --single-image --sample-seed 42 \
+    --model-path ./models/weights/resunet.pth \
+    --output ../results/compare_single_image --plot
+
+# Compare across multiple sigma values and generate line plots
+python -m denoiser --synthetic --compare bm3d nl-means resunet \
+    --dataset-path ../data/benchmark/clean/test \
+    --single-image --sample-seed 42 \
+    --model-path ./models/weights/resunet.pth \
+    --sigma-sweep 0.05,0.1,0.15,0.2 \
+    --output ../results/sigma_sweep_compare --plot
 ```
 
 ## CLI Flags Reference
@@ -117,6 +133,9 @@ python -m denoiser --test bm3d nl-means --output results/comparison --plot
 ### Dataset Configuration
 - `--dataset-path PATH` - Path to image directory
 - `--sigma FLOAT` - Noise level (default: 0.1)
+- `--single-image` - Use one automatically selected image from dataset (fast runs)
+- `--sample-seed INT` - Seed for deterministic image sampling with `--single-image` (default: 42)
+- `--sigma-sweep v1,v2,...` - Run synthetic evaluation across multiple sigma values and generate sweep plots
 
 ### Algorithm Parameters
 - `--patch-size INT` - Patch size for NL-Means (default: 5)
@@ -136,6 +155,11 @@ python -m denoiser --test bm3d nl-means --output results/comparison --plot
 
 ### Comparison Mode
 - `--compare` - Enable comparison mode (optional if multiple algorithms specified)
+
+### Sigma Sweep Notes
+- `--sigma-sweep` works with `--synthetic` datasets
+- During sigma sweep, `--sigma` is ignored and values from `--sigma-sweep` are used
+- For reproducible single-image sweeps, use `--single-image --sample-seed <seed>`
 
 ## Output Files
 
@@ -159,6 +183,14 @@ results/
     ├── BM3D_camera_denoised.png
     ├── NLMeans_camera_denoised.png
     └── ...
+```
+
+### Sigma Sweep Mode
+```
+results/
+├── sigma_sweep_summary.csv             # Columns: sigma, algorithm, avg_psnr, avg_ssim
+├── psnr_vs_sigma.png                   # Line plot: average PSNR vs sigma
+└── ssim_vs_sigma.png                   # Line plot: average SSIM vs sigma
 ```
 
 ## Example Workflows
@@ -212,6 +244,27 @@ python src/models/training/train_resunet.py \
     --sigma 0.1 \
     --device cpu \
     --save-path ./src/models/weights/resunet.pth
+```
+
+### 7. Fast One-Image Comparison
+```bash
+# Quickly compare algorithms on one sampled image
+python -m denoiser --synthetic --compare bm3d nl-means resunet \
+    --dataset-path ../data/benchmark/clean/test \
+    --single-image --sample-seed 42 \
+    --model-path ./models/weights/resunet.pth \
+    --output ../results/compare_single_image --plot
+```
+
+### 8. PSNR/SSIM vs Sigma Curves
+```bash
+# Generate two line graphs: PSNR vs sigma and SSIM vs sigma
+python -m denoiser --synthetic --compare bm3d nl-means resunet \
+    --dataset-path ../data/benchmark/clean/test \
+    --single-image --sample-seed 42 \
+    --model-path ./models/weights/resunet.pth \
+    --sigma-sweep 0.05,0.1,0.15,0.2 \
+    --output ../results/sigma_sweep_compare --plot
 ```
 
 ## Performance Metrics
@@ -277,6 +330,7 @@ python -m denoiser --real-world bm3d --dataset-path data/paired --plot
 **"Module not found" error:**
 - Activate conda environment: `conda activate denoising`
 - Or install dependencies: `pip install numpy matplotlib scikit-image bm3d torch tqdm`
+- Make sure you run CLI commands from the `src` folder (or set `PYTHONPATH` to `src`)
 
 **BM3D errors:**
 - Check you have `bm3d` installed: `pip install bm3d`
