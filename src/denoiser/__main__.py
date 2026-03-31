@@ -193,16 +193,16 @@ Examples:
   python -m denoiser --synthetic nl-means --dataset-path ./datasets/images
 
     # Run Residual U-Net CNN with pretrained weights
-    python -m denoiser --test resunet --model-path ./models/resunet.pth --device cpu
+        python -m denoiser --test resunet --device cpu
   
   # Compare algorithms side-by-side
-  python -m denoiser --test --compare bm3d nl-means --output results/comparison --plot
+    python -m denoiser --test --compare bm3d nl-means --output results/comparison --plot
   
   # Run BM3D on real-world paired images
   python -m denoiser --real-world bm3d --dataset-path ./datasets/paired
   
   # Customize noise level and save results
-  python -m denoiser --synthetic bm3d --sigma 0.15 --output results/bm3d_sigma015/
+    python -m denoiser --synthetic bm3d --sigma 0.15
         """
     )
     
@@ -291,13 +291,6 @@ Examples:
     )
 
     parser.add_argument(
-        '--model-path',
-        type=str,
-        default=None,
-        help='Path to pretrained CNN weights (.pt/.pth) for ResUNet'
-    )
-
-    parser.add_argument(
         '--base-channels',
         type=int,
         default=32,
@@ -316,25 +309,19 @@ Examples:
         '--output',
         type=str,
         default=None,
-        help='Output directory for results (optional)'
-    )
-    
-    parser.add_argument(
-        '--save-images',
-        action='store_true',
-        help='Save denoised images to output directory'
+        help='Output directory for comparison and sigma-sweep results (ignored in single mode)'
     )
     
     parser.add_argument(
         '--plot',
         action='store_true',
-        help='Generate and save performance plots'
+        help='Generate and save comparison plots (single mode always saves plots)'
     )
     
     parser.add_argument(
         '--show-plot',
         action='store_true',
-        help='Display plots interactively (requires --plot)'
+        help='Display generated plots interactively'
     )
     
     parser.add_argument(
@@ -369,7 +356,6 @@ def build_algorithm_params(algorithm_name: str, args: argparse.Namespace) -> dic
         }
     if algorithm_name in ['resunet', 'res-unet', 'residual-unet']:
         return {
-            'model_path': args.model_path,
             'base_channels': args.base_channels,
             'device': args.device,
         }
@@ -478,14 +464,13 @@ def main() -> int:
                 / 'results'
                 / 'single'
                 / format_algorithm_for_path(algorithm.name)
-                / f"sigma_{format_sigma_for_path(args.sigma)}"
             )
 
             if args.output and args.verbose:
                 print(f"Note: --output is ignored in single mode. Using: {output_dir}")
 
-            evaluator.save_results(output_dir, save_images=True)
-            evaluator.plot_results(output_dir, show_plot=args.show_plot)
+            evaluator.save_results(output_dir, save_images=True, sigma=args.sigma)
+            evaluator.plot_results(output_dir, show_plot=args.show_plot, sigma=args.sigma)
             print(f"\nResults saved to: {output_dir}")
         
         return 0

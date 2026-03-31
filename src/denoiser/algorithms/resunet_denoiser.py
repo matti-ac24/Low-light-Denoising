@@ -85,20 +85,41 @@ def _build_resunet(in_channels: int, base_channels: int):
 
 
 class ResUNetDenoiser(BaseDenoiser):
-    # Initialise the Residual U-Net denoiser with model path and architecture/device settings
+    # Initialise the Residual U-Net denoiser with fixed model path and architecture/device settings
     def __init__(
         self,
-        model_path: Optional[str] = None,
         base_channels: int = 32,
         device: str = 'auto',
     ) -> None:
-        super().__init__(model_path=model_path, base_channels=base_channels, device=device)
+        model_path = Path(__file__).resolve().parents[3] / 'models' / 'weights' / 'resunet.pth'
+        super().__init__(model_path=str(model_path), base_channels=base_channels, device=device)
         self.model_path = model_path
         self.base_channels = base_channels
         self.device = device
 
         self._model = None
         self._model_channels: Optional[int] = None
+
+    # Infer expected channel count directly from checkpoint tensors
+    def _infer_checkpoint_channels(self, state_dict: dict) -> int:
+        enc1_key = 'enc1.block.0.weight'
+        out_key = 'out_conv.weight'
+
+        if enc1_key not in state_dict or out_key not in state_dict:
+            raise KeyError(
+                "Checkpoint missing required keys for channel inference: "
+                f"'{enc1_key}' and '{out_key}'"
+            )
+
+        in_channels = int(state_dict[enc1_key].shape[1])
+        out_channels = int(state_dict[out_key].shape[0])
+        if in_channels != out_channels:
+            raise ValueError(
+                "Checkpoint appears inconsistent: "
+                f"in_channels={in_channels}, out_channels={out_channels}"
+            )
+
+        return in_channels
 
     # Resolve runtime device
     def _resolve_device(self):
@@ -116,17 +137,10 @@ class ResUNetDenoiser(BaseDenoiser):
     def _load_model(self, channels: int):
         import torch
 
-        if self.model_path is None:
-            raise ValueError(
-                "ResUNetDenoiser requires '--model-path' with pretrained weights. "
-                "Provide a .pth/.pt checkpoint when using algorithm 'resunet'."
-            )
-
         if self._model is not None and self._model_channels == channels:
             return self._model
 
-        model = _build_resunet(in_channels=channels, base_channels=self.base_channels)
-        checkpoint_path = Path(self.model_path)
+        checkpoint_path = self.model_path
         if not checkpoint_path.exists():
             raise FileNotFoundError(f"Model file not found: {checkpoint_path}")
 
@@ -144,12 +158,15 @@ class ResUNetDenoiser(BaseDenoiser):
                 for key, value in state_dict.items()
             }
 
+        model_channels = self._infer_checkpoint_channels(state_dict)
+        model = _build_resunet(in_channels=model_channels, base_channels=self.base_channels)
+
         model.load_state_dict(state_dict)
         model.to(self._resolve_device())
         model.eval()
 
         self._model = model
-        self._model_channels = channels
+        self._model_channels = model_channels
         return model
 
     # Denoise an image using a pretrained Residual U-Net model
@@ -176,8 +193,20 @@ class ResUNetDenoiser(BaseDenoiser):
             raise ValueError(f"Unsupported image shape: {noisy_image.shape}")
 
         model = self._load_model(channels=channels)
+        model_channels = self._model_channels if self._model_channels is not None else channels
         device = self._resolve_device()
         tensor = tensor.to(device)
+
+        # Adapt input channels to the checkpoint's expected channels.
+        if channels != model_channels:
+            if channels == 1 and model_channels == 3:
+                tensor = tensor.repeat(1, 3, 1, 1)
+            elif channels == 3 and model_channels == 1:
+                tensor = tensor.mean(dim=1, keepdim=True)
+            else:
+                raise ValueError(
+                    f"Unsupported channel conversion from {channels} to {model_channels}"
+                )
 
         # Pad to match two downsampling stages (factor 4)
         _, _, height, width = tensor.shape
@@ -192,6 +221,13 @@ class ResUNetDenoiser(BaseDenoiser):
         # Remove padding
         if pad_h > 0 or pad_w > 0:
             output = output[:, :, :height, :width]
+
+        # Convert back to original channel layout expected by metrics/output flow.
+        if channels != model_channels:
+            if channels == 1 and model_channels == 3:
+                output = output.mean(dim=1, keepdim=True)
+            elif channels == 3 and model_channels == 1:
+                output = output.repeat(1, 3, 1, 1)
 
         output_np = output.squeeze(0).detach().cpu().numpy()
         if is_grayscale:

@@ -10,6 +10,13 @@ from .utils.metrics import calculate_all_metrics
 
 # Evaluator for a single denoising algorithm
 class Evaluator:
+
+    @staticmethod
+    def _format_sigma_suffix(sigma: float | None) -> str:
+        if sigma is None:
+            return ''
+        formatted = f"{sigma:.4f}".rstrip('0').rstrip('.').replace('.', 'p')
+        return f"_sigma_{formatted}"
     
     # Initialise the evaluator with algorithm, dataset loader, and verbosity settings
     def __init__(self, algorithm: Any, dataset_loader: Any, verbose: bool = True) -> None:
@@ -140,7 +147,7 @@ class Evaluator:
         print(f"{'='*70}\n")
     
     # Generate and save performance plots for the evaluation results
-    def plot_results(self, output_dir: Union[str, Path], show_plot: bool = False) -> None:
+    def plot_results(self, output_dir: Union[str, Path], show_plot: bool = False, sigma: float | None = None) -> None:
 
         if not self.results:
             print("Warning: No results to plot!")
@@ -206,7 +213,8 @@ class Evaluator:
         plt.tight_layout()
         
         # Save plot
-        plot_path = plots_dir / f'metrics_plot_{self.algorithm.name.replace(" ", "_").lower()}.png'
+        sigma_suffix = self._format_sigma_suffix(sigma)
+        plot_path = plots_dir / f'metrics_plot_{self.algorithm.name.replace(" ", "_").lower()}{sigma_suffix}.png'
         plt.savefig(plot_path, dpi=150, bbox_inches='tight')
         
         if self.verbose:
@@ -218,7 +226,7 @@ class Evaluator:
             plt.close()
     
     # Save evaluation results and optionally images to disk.
-    def save_results(self, output_dir: Union[str, Path], save_images: bool = True) -> None:
+    def save_results(self, output_dir: Union[str, Path], save_images: bool = True, sigma: float | None = None) -> None:
 
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -228,7 +236,8 @@ class Evaluator:
         # Save metrics to CSV
         import csv
         
-        csv_path = metrics_dir / 'metrics.csv'
+        sigma_suffix = self._format_sigma_suffix(sigma)
+        csv_path = metrics_dir / f'metrics{sigma_suffix}.csv'
         with open(csv_path, 'w', newline='') as f:
             fieldnames = ['image', 'processing_time', 'noisy_psnr', 'denoised_psnr', 
                          'psnr_improvement', 'noisy_mse', 'denoised_mse', 'noisy_ssim', 'denoised_ssim']
@@ -263,7 +272,7 @@ class Evaluator:
                 images_dir.mkdir(exist_ok=True)
                 
                 for result in self.results:
-                    img_path = images_dir / f"{result['name']}_denoised.png"
+                    img_path = images_dir / f"{result['name']}_denoised{sigma_suffix}.png"
                     # Convert to uint8 for saving
                     img_uint8 = (result['denoised'] * 255).astype(np.uint8)
                     io.imsave(img_path, img_uint8)
