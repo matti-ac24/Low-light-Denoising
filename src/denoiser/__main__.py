@@ -44,7 +44,7 @@ def run_sigma_sweep(
     output_dir = Path(args.output) if args.output else Path('results/sigma_sweep')
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    if not args.quiet:
+    if args.verbose:
         print(f"\nRunning sigma sweep for values: {sigma_values}")
 
     algo_metrics: dict[str, dict[str, list[float]]] = {}
@@ -55,7 +55,7 @@ def run_sigma_sweep(
             algo_metrics[display_name] = {'psnr': [], 'ssim': []}
 
     for sigma in sigma_values:
-        if not args.quiet:
+        if args.verbose:
             print(f"\n{'-'*70}")
             print(f"Sigma sweep step: σ={sigma:.3f}")
             print(f"{'-'*70}")
@@ -78,7 +78,7 @@ def run_sigma_sweep(
             comparison_evaluator = ComparisonEvaluator(
                 algorithms=algorithms,
                 dataset_loader=dataset_loader,
-                verbose=not args.quiet,
+                verbose=args.verbose,
             )
             all_results = comparison_evaluator.evaluate_all()
 
@@ -96,7 +96,7 @@ def run_sigma_sweep(
             evaluator = Evaluator(
                 algorithm=algorithm,
                 dataset_loader=dataset_loader,
-                verbose=not args.quiet,
+                verbose=args.verbose,
             )
             results = evaluator.evaluate()
 
@@ -157,10 +157,12 @@ def run_sigma_sweep(
     else:
         plt.close()
 
-    if not args.quiet:
-        print(f"\nSigma sweep summary saved to: {summary_csv_path}")
-        print(f"PSNR plot saved to: {psnr_plot_path}")
-        print(f"SSIM plot saved to: {ssim_plot_path}")
+    print(f"\nSigma sweep complete!")
+    print(f"Results saved to: {output_dir}")
+    if args.verbose:
+        print(f"  - Summary CSV: {summary_csv_path}")
+        print(f"  - PSNR plot: {psnr_plot_path}")
+        print(f"  - SSIM plot: {ssim_plot_path}")
 
     return 0
 
@@ -338,9 +340,9 @@ Examples:
     )
     
     parser.add_argument(
-        '--quiet',
+        '--verbose',
         action='store_true',
-        help='Suppress verbose output'
+        help='Show detailed verbose output'
     )
     
     return parser.parse_args()
@@ -413,7 +415,7 @@ def main() -> int:
             comparison_evaluator = ComparisonEvaluator(
                 algorithms=algorithms,
                 dataset_loader=dataset_loader,
-                verbose=not args.quiet
+                verbose=args.verbose
             )
             
             # Run comparison evaluation
@@ -427,6 +429,7 @@ def main() -> int:
             if args.output:
                 output_dir = Path(args.output)
                 comparison_evaluator.save_comparison_summary(output_dir)
+                print(f"\nComparison results saved to: {output_dir}")
                 
                 # Generate comparison plots if requested
                 if args.plot:
@@ -435,6 +438,7 @@ def main() -> int:
                 # If --plot is specified without --output, create a default output directory
                 output_dir = Path('results/comparison')
                 comparison_evaluator.plot_comparison(output_dir, show_plot=args.show_plot)
+                print(f"\nComparison results saved to: {output_dir}")
         
         else:
             # Single algorithm mode
@@ -447,7 +451,7 @@ def main() -> int:
             evaluator = Evaluator(
                 algorithm=algorithm,
                 dataset_loader=dataset_loader,
-                verbose=not args.quiet
+                verbose=args.verbose
             )
             
             # Run evaluation
@@ -461,6 +465,7 @@ def main() -> int:
             if args.output:
                 output_dir = Path(args.output)
                 evaluator.save_results(output_dir, save_images=args.save_images)
+                print(f"\nResults saved to: {output_dir}")
                 
                 # Generate plots if requested
                 if args.plot:
@@ -469,12 +474,13 @@ def main() -> int:
                 # If --plot is specified without --output, create a default output directory
                 output_dir = Path('results')
                 evaluator.plot_results(output_dir, show_plot=args.show_plot)
+                print(f"\nResults saved to: {output_dir}")
         
         return 0
         
     except Exception as e:
         print(f"\nError: {e}")
-        if not args.quiet:
+        if args.verbose:
             import traceback
             traceback.print_exc()
         return 1
