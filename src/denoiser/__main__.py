@@ -9,6 +9,17 @@ from .datasets import get_dataset_loader
 from .evaluator import Evaluator, ComparisonEvaluator
 
 
+def format_sigma_for_path(sigma: float) -> str:
+
+    formatted = f"{sigma:.4f}".rstrip('0').rstrip('.')
+    return formatted.replace('.', 'p')
+
+
+def format_algorithm_for_path(name: str) -> str:
+
+    return name.strip().lower().replace(' ', '-').replace('_', '-')
+
+
 def parse_sigma_sweep(sigma_sweep_arg: str) -> list[float]:
 
     values = [item.strip() for item in sigma_sweep_arg.split(',') if item.strip()]
@@ -460,21 +471,22 @@ def main() -> int:
             # Show image comparisons if requested
             if args.show_images:
                 evaluator.show_image_comparison(num_images=args.num_display)
-            
-            # Save results if output directory specified
-            if args.output:
-                output_dir = Path(args.output)
-                evaluator.save_results(output_dir, save_images=args.save_images)
-                print(f"\nResults saved to: {output_dir}")
-                
-                # Generate plots if requested
-                if args.plot:
-                    evaluator.plot_results(output_dir, show_plot=args.show_plot)
-            elif args.plot:
-                # If --plot is specified without --output, create a default output directory
-                output_dir = Path('results')
-                evaluator.plot_results(output_dir, show_plot=args.show_plot)
-                print(f"\nResults saved to: {output_dir}")
+
+            project_root = Path(__file__).resolve().parents[2]
+            output_dir = (
+                project_root
+                / 'results'
+                / 'single'
+                / format_algorithm_for_path(algorithm.name)
+                / f"sigma_{format_sigma_for_path(args.sigma)}"
+            )
+
+            if args.output and args.verbose:
+                print(f"Note: --output is ignored in single mode. Using: {output_dir}")
+
+            evaluator.save_results(output_dir, save_images=True)
+            evaluator.plot_results(output_dir, show_plot=args.show_plot)
+            print(f"\nResults saved to: {output_dir}")
         
         return 0
         

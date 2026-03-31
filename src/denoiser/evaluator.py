@@ -147,7 +147,8 @@ class Evaluator:
             return
         
         output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
+        plots_dir = output_dir / 'plots'
+        plots_dir.mkdir(parents=True, exist_ok=True)
         
         # Prepare data
         image_names = [r['name'] for r in self.results]
@@ -205,7 +206,7 @@ class Evaluator:
         plt.tight_layout()
         
         # Save plot
-        plot_path = output_dir / f'metrics_plot_{self.algorithm.name.replace(" ", "_").lower()}.png'
+        plot_path = plots_dir / f'metrics_plot_{self.algorithm.name.replace(" ", "_").lower()}.png'
         plt.savefig(plot_path, dpi=150, bbox_inches='tight')
         
         if self.verbose:
@@ -221,11 +222,13 @@ class Evaluator:
 
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
+        metrics_dir = output_dir / 'metrics'
+        metrics_dir.mkdir(exist_ok=True)
         
         # Save metrics to CSV
         import csv
         
-        csv_path = output_dir / 'metrics.csv'
+        csv_path = metrics_dir / 'metrics.csv'
         with open(csv_path, 'w', newline='') as f:
             fieldnames = ['image', 'processing_time', 'noisy_psnr', 'denoised_psnr', 
                          'psnr_improvement', 'noisy_mse', 'denoised_mse', 'noisy_ssim', 'denoised_ssim']
@@ -256,7 +259,7 @@ class Evaluator:
             try:
                 from skimage import io
                 
-                images_dir = output_dir / 'denoised_images'
+                images_dir = output_dir / 'images'
                 images_dir.mkdir(exist_ok=True)
                 
                 for result in self.results:
