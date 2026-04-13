@@ -54,12 +54,23 @@ def parse_sigma_range(sigma_range_arg: str) -> list[float]:
     return sigmas
 
 
+def resolve_max_images(args: argparse.Namespace) -> int | None:
+    if args.max_images is None:
+        return None
+
+    if args.max_images < 1:
+        raise ValueError("--max-images must be >= 1")
+
+    return args.max_images
+
+
 def run_sigma_range(
     args: argparse.Namespace,
     dataset_type: str,
     dataset_path: str,
     algorithms_list: list[str],
     is_comparison: bool,
+    max_images: int | None,
     output_dir: Path,
 ) -> int:
 
@@ -103,7 +114,7 @@ def run_sigma_range(
             dataset_type=dataset_type,
             dataset_path=dataset_path,
             noise_sigma=sigma,
-            max_images=1 if args.single_image else None,
+            max_images=max_images,
             sample_seed=args.sample_seed,
         )
 
@@ -291,9 +302,10 @@ Examples:
     )
 
     parser.add_argument(
-        '--single-image',
-        action='store_true',
-        help='Automatically select one random image from the dataset for a fast run'
+        '--max-images',
+        type=int,
+        default=None,
+        help='Process up to N randomly selected images from the dataset'
     )
 
     parser.add_argument(
@@ -421,9 +433,13 @@ def main() -> int:
         print(f"Using dataset path: {dataset_path}")
     
     try:
+        if dataset_type == 'test' and args.max_images is not None:
+            raise ValueError("--max-images is not supported with --test")
+
         # Check if comparison mode (multiple algorithms or --compare flag)
         algorithms_list = args.algorithm if isinstance(args.algorithm, list) else [args.algorithm]
         is_comparison = args.compare or len(algorithms_list) > 1
+        max_images = resolve_max_images(args)
 
         if args.sigma_range:
             if dataset_type != 'synthetic':
@@ -450,6 +466,7 @@ def main() -> int:
                 dataset_path,
                 algorithms_list,
                 is_comparison,
+                max_images,
                 output_dir,
             )
 
@@ -458,7 +475,7 @@ def main() -> int:
             dataset_type=dataset_type,
             dataset_path=dataset_path,
             noise_sigma=args.sigma,
-            max_images=1 if args.single_image else None,
+            max_images=max_images,
             sample_seed=args.sample_seed,
         )
         

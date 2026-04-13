@@ -108,12 +108,12 @@ python -m denoiser --test bm3d nl-means --output results/comparison --plot
 
 # Fast comparison on one automatically selected image
 python -m denoiser --synthetic --compare bm3d nl-means resunet \
-    --single-image --sample-seed 42 \
+    --max-images 1 --sample-seed 42 \
     --output ../results/compare_single_image --plot
 
 # Compare across multiple sigma values and generate line plots
 python -m denoiser --synthetic --compare bm3d nl-means resunet \
-    --single-image --sample-seed 42 \
+    --max-images 1 --sample-seed 42 \
     --sigma-range 0.05,0.2,0.05 \
     --output ../results/sigma_range_compare --plot
 ```
@@ -130,8 +130,8 @@ python -m denoiser --synthetic --compare bm3d nl-means resunet \
 
 ### Dataset Configuration
 - `--sigma FLOAT` - Noise level (default: 0.1)
-- `--single-image` - Use one automatically selected image from dataset (fast runs)
-- `--sample-seed INT` - Seed for deterministic image sampling with `--single-image` (default: 42)
+- `--max-images INT` - Process up to N randomly selected images from dataset (`--synthetic` or `--real-world` only)
+- `--sample-seed INT` - Seed for deterministic image sampling when using `--max-images` (default: 42)
 - `--sigma-range start,end,step` - Run synthetic evaluation across a sigma range and generate range plots
 
 ### Algorithm Parameters
@@ -155,7 +155,7 @@ python -m denoiser --synthetic --compare bm3d nl-means resunet \
 - `--sigma-range` works with `--synthetic` datasets
 - `--sigma-range` format is `start,end,step` (example: `0.05,0.2,0.05`)
 - During sigma-range runs, dataset noise and BM3D/NL-Means sigma are updated per step
-- For reproducible single-image ranges, use `--single-image --sample-seed <seed>`
+- For reproducible subset ranges, use `--max-images <N>` with `--sample-seed <seed>`
 
 ## Output Files
 
@@ -249,7 +249,7 @@ python models/training/train_resunet.py \
 ```bash
 # Quickly compare algorithms on one sampled image
 python -m denoiser --synthetic --compare bm3d nl-means resunet \
-    --single-image --sample-seed 42 \
+    --max-images 1 --sample-seed 42 \
     --output ../results/compare_single_image --plot
 ```
 
@@ -257,7 +257,7 @@ python -m denoiser --synthetic --compare bm3d nl-means resunet \
 ```bash
 # Generate two line graphs: PSNR vs sigma and SSIM vs sigma
 python -m denoiser --synthetic --compare bm3d nl-means resunet \
-    --single-image --sample-seed 42 \
+    --max-images 1 --sample-seed 42 \
     --sigma-range 0.05,0.2,0.05 \
     --output ../results/sigma_range_compare --plot
 ```
