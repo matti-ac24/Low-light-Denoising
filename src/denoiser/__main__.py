@@ -9,6 +9,10 @@ from .datasets import get_dataset_loader
 from .evaluator import Evaluator, ComparisonEvaluator
 
 
+DEFAULT_SYNTHETIC_DATASET_REL_PATH = Path('data/benchmark/clean/test')
+DEFAULT_REAL_WORLD_DATASET_REL_PATH = Path('data/demo_pair')
+
+
 def format_sigma_for_path(sigma: float) -> str:
 
     formatted = f"{sigma:.4f}".rstrip('0').rstrip('.')
@@ -39,6 +43,7 @@ def parse_sigma_sweep(sigma_sweep_arg: str) -> list[float]:
 def run_sigma_sweep(
     args: argparse.Namespace,
     dataset_type: str,
+    dataset_path: str,
     algorithms_list: list[str],
     is_comparison: bool,
 ) -> int:
@@ -73,7 +78,7 @@ def run_sigma_sweep(
 
         dataset_loader = get_dataset_loader(
             dataset_type=dataset_type,
-            dataset_path=args.dataset_path,
+            dataset_path=dataset_path,
             noise_sigma=sigma,
             max_images=1 if args.single_image else None,
             sample_seed=args.sample_seed,
@@ -190,7 +195,7 @@ Examples:
   python -m denoiser --test bm3d
   
   # Run NL-Means on synthetic noisy images
-  python -m denoiser --synthetic nl-means --dataset-path ./datasets/images
+    python -m denoiser --synthetic nl-means
 
     # Run Residual U-Net CNN with pretrained weights
         python -m denoiser --test resunet --device cpu
@@ -199,7 +204,7 @@ Examples:
     python -m denoiser --test --compare bm3d nl-means --output results/comparison --plot
   
   # Run BM3D on real-world paired images
-  python -m denoiser --real-world bm3d --dataset-path ./datasets/paired
+    python -m denoiser --real-world bm3d
   
   # Customize noise level and save results
     python -m denoiser --synthetic bm3d --sigma 0.15
@@ -216,12 +221,12 @@ Examples:
     dataset_group.add_argument(
         '--synthetic',
         action='store_true',
-        help='Use synthetic dataset (add noise to clean images)'
+        help='Use synthetic dataset from ./data/benchmark/clean/test (adds noise)'
     )
     dataset_group.add_argument(
         '--real-world',
         action='store_true',
-        help='Use real-world paired dataset (clean/noisy pairs)'
+        help='Use real-world paired dataset from ./data/demo_pair (clean/noisy pairs)'
     )
     
     # Comparison mode
@@ -238,14 +243,6 @@ Examples:
         nargs='+',
         choices=list(ALGORITHMS.keys()),
         help='Denoising algorithm(s) to use (can specify multiple for comparison)'
-    )
-    
-    # Dataset options
-    parser.add_argument(
-        '--dataset-path',
-        type=str,
-        default=None,
-        help='Path to dataset directory (required for --synthetic and --real-world)'
     )
     
     parser.add_argument(
@@ -378,10 +375,19 @@ def main() -> int:
         print("Error: No dataset type specified")
         sys.exit(1)
     
-    # Validate dataset path
-    if dataset_type in ['synthetic', 'real-world'] and not args.dataset_path:
-        print(f"Error: --dataset-path required for --{dataset_type} datasets")
-        sys.exit(1)
+    project_root = Path(__file__).resolve().parents[2]
+    synthetic_dataset_path = project_root / DEFAULT_SYNTHETIC_DATASET_REL_PATH
+    real_world_dataset_path = project_root / DEFAULT_REAL_WORLD_DATASET_REL_PATH
+
+    if dataset_type == 'synthetic':
+        dataset_path: str | None = str(synthetic_dataset_path)
+    elif dataset_type == 'real-world':
+        dataset_path = str(real_world_dataset_path)
+    else:
+        dataset_path = None
+
+    if dataset_path and args.verbose:
+        print(f"Using dataset path: {dataset_path}")
     
     try:
         # Check if comparison mode (multiple algorithms or --compare flag)
@@ -389,12 +395,14 @@ def main() -> int:
         is_comparison = args.compare or len(algorithms_list) > 1
 
         if args.sigma_sweep:
-            return run_sigma_sweep(args, dataset_type, algorithms_list, is_comparison)
+            if dataset_type != 'synthetic':
+                raise ValueError("--sigma-sweep can only be used with --synthetic")
+            return run_sigma_sweep(args, dataset_type, dataset_path, algorithms_list, is_comparison)
 
         # Load dataset
         dataset_loader = get_dataset_loader(
             dataset_type=dataset_type,
-            dataset_path=args.dataset_path,
+            dataset_path=dataset_path,
             noise_sigma=args.sigma,
             max_images=1 if args.single_image else None,
             sample_seed=args.sample_seed,
@@ -458,7 +466,6 @@ def main() -> int:
             if args.show_images:
                 evaluator.show_image_comparison(num_images=args.num_display)
 
-            project_root = Path(__file__).resolve().parents[2]
             output_dir = (
                 project_root
                 / 'results'

@@ -45,19 +45,21 @@ This will:
 ```bash
 python -m denoiser --test bm3d
 python -m denoiser --test nl-means
-python -m denoiser --test resunet --model-path ./models/weights/resunet.pth --device cpu
+python -m denoiser --test resunet --device cpu
 ```
 
 **Compare multiple algorithms:**
 ```bash
 python -m denoiser --test bm3d nl-means --plot
-python -m denoiser --test bm3d nl-means resunet --model-path ./models/weights/resunet.pth --device cpu --plot
+python -m denoiser --test bm3d nl-means resunet --device cpu --plot
 ```
 
-**Save results with plots:**
+**Single algorithm output location:**
 ```bash
-python -m denoiser --test bm3d --output results/bm3d --save-images --plot
+python -m denoiser --test bm3d --plot
 ```
+
+Single-mode output is always written under `results/single/<algorithm>/`.
 
 ### Dataset Options
 
@@ -68,12 +70,12 @@ python -m denoiser --test bm3d
 
 **Synthetic noise** (add noise to clean images):
 ```bash
-python -m denoiser --synthetic bm3d --dataset-path ./data/clean_images --sigma 0.15
+python -m denoiser --synthetic bm3d --sigma 0.15
 ```
 
 **Real-world paired images** (clean/noisy pairs):
 ```bash
-python -m denoiser --real-world bm3d --dataset-path ./data/paired_images
+python -m denoiser --real-world bm3d
 ```
 
 ### Algorithm Parameters
@@ -90,7 +92,7 @@ python -m denoiser --test nl-means --patch-size 7 --patch-distance 8 --sigma 0.1
 
 **ResUNet with pretrained weights:**
 ```bash
-python -m denoiser --test resunet --model-path ./models/weights/resunet.pth --base-channels 32 --device cpu
+python -m denoiser --test resunet --base-channels 32 --device cpu
 ```
 
 ### Comparison Mode
@@ -106,16 +108,12 @@ python -m denoiser --test bm3d nl-means --output results/comparison --plot
 
 # Fast comparison on one automatically selected image
 python -m denoiser --synthetic --compare bm3d nl-means resunet \
-    --dataset-path ../data/benchmark/clean/test \
     --single-image --sample-seed 42 \
-    --model-path ./models/weights/resunet.pth \
     --output ../results/compare_single_image --plot
 
 # Compare across multiple sigma values and generate line plots
 python -m denoiser --synthetic --compare bm3d nl-means resunet \
-    --dataset-path ../data/benchmark/clean/test \
     --single-image --sample-seed 42 \
-    --model-path ./models/weights/resunet.pth \
     --sigma-sweep 0.05,0.1,0.15,0.2 \
     --output ../results/sigma_sweep_compare --plot
 ```
@@ -124,14 +122,13 @@ python -m denoiser --synthetic --compare bm3d nl-means resunet \
 
 ### Required: Dataset Type (choose one)
 - `--test` - Use built-in test images
-- `--synthetic` - Add synthetic noise to clean images (requires `--dataset-path`)
-- `--real-world` - Use real-world noisy/clean pairs (requires `--dataset-path`)
+- `--synthetic` - Add synthetic noise to images from `./data/benchmark/clean/test`
+- `--real-world` - Use real-world noisy/clean pairs from `./data/demo_pair`
 
 ### Algorithm Selection
 - `algorithm(s)` - One or more: `bm3d`, `nl-means`, `nlmeans`, `resunet`, `res-unet`, `residual-unet`
 
 ### Dataset Configuration
-- `--dataset-path PATH` - Path to image directory
 - `--sigma FLOAT` - Noise level (default: 0.1)
 - `--single-image` - Use one automatically selected image from dataset (fast runs)
 - `--sample-seed INT` - Seed for deterministic image sampling with `--single-image` (default: 42)
@@ -140,25 +137,24 @@ python -m denoiser --synthetic --compare bm3d nl-means resunet \
 ### Algorithm Parameters
 - `--patch-size INT` - Patch size for NL-Means (default: 5)
 - `--patch-distance INT` - Patch search distance for NL-Means (default: 6)
-- `--model-path PATH` - Path to pretrained `.pt/.pth` weights for ResUNet
 - `--base-channels INT` - Base channels for ResUNet (default: 32)
 - `--device STR` - Runtime device for ResUNet (`auto`, `cpu`, `cuda`)
 
 ### Output Options
-- `--output DIR` - Save results to directory (default: `results/`)
-- `--save-images` - Save denoised images as PNG files
+- `--output DIR` - Save comparison and sigma-sweep results to a directory
 - `--plot` - Generate performance plots
 - `--show-plot` - Display plots interactively
 - `--show-images` - Display side-by-side comparison of noisy and denoised images
 - `--num-display INT` - Number of random images to display with `--show-images` (default: 3)
-- `--quiet` - Suppress verbose output
+- `--verbose` - Show detailed verbose output
 
 ### Comparison Mode
 - `--compare` - Enable comparison mode (optional if multiple algorithms specified)
 
 ### Sigma Sweep Notes
 - `--sigma-sweep` works with `--synthetic` datasets
-- During sigma sweep, `--sigma` is ignored and values from `--sigma-sweep` are used
+- During sigma sweep, dataset noise uses values from `--sigma-sweep`
+- During sigma sweep, BM3D/NL-Means algorithm sigma remains controlled by `--sigma`
 - For reproducible single-image sweeps, use `--single-image --sample-seed <seed>`
 
 ## Output Files
@@ -166,23 +162,24 @@ python -m denoiser --synthetic --compare bm3d nl-means resunet \
 ### Single Algorithm Mode
 ```
 results/
-├── metrics.csv                    # Performance metrics for each image
-├── metrics_plot_bm3d.png         # Visualization: noisy vs denoised
-└── denoised_images/              # (if --save-images used)
-    ├── camera_denoised.png
-    ├── astronaut_denoised.png
-    └── text_denoised.png
+└── single/
+    └── bm3d/
+        ├── metrics/
+        │   └── metrics_sigma_0p1.csv
+        ├── plots/
+        │   └── metrics_plot_bm3d_sigma_0p1.png
+        └── images/
+            ├── camera_denoised_sigma_0p1.png
+            ├── astronaut_denoised_sigma_0p1.png
+            └── text_denoised_sigma_0p1.png
 ```
 
 ### Comparison Mode
 ```
 results/
-├── comparison_summary.csv               # All algorithms in one file
-├── comparison_bm3d_vs_nlmeans.png      # Side-by-side comparison
-└── denoised_images/                    # (if --save-images used)
-    ├── BM3D_camera_denoised.png
-    ├── NLMeans_camera_denoised.png
-    └── ...
+└── comparison/
+    ├── comparison_summary.csv
+    └── comparison_bm3d_vs_nl_means.png
 ```
 
 ### Sigma Sweep Mode
@@ -206,25 +203,23 @@ python -m denoiser --test bm3d --plot
 # Compare BM3D vs NL-Means and save everything
 python -m denoiser --test bm3d nl-means \
     --output results/comparison \
-    --plot --save-images
+    --plot
 ```
 
 ### 3. Custom Noise Level Evaluation
 ```bash
-# Test on your images with specific noise level
+# Synthetic run uses ./data/benchmark/clean/test internally
 python -m denoiser --synthetic bm3d \
-    --dataset-path ./my_clean_images \
     --sigma 0.2 \
-    --output results/high_noise \
-    --plot --save-images
+    --plot
 ```
 
-### 4. Batch Processing (Quiet Mode)
+### 4. Batch Processing (Verbose Mode)
 ```bash
-# Run comparison without verbose output
+# Run comparison with detailed logs
 python -m denoiser --test bm3d nl-means \
     --output results/batch_run \
-    --plot --quiet
+    --plot --verbose
 ```
 
 ### 5. Visual Image Comparison
@@ -239,20 +234,18 @@ python -m denoiser --test bm3d nl-means --show-images --num-display 2
 ### 6. Train ResUNet (AWGN benchmark setup)
 ```bash
 # Train using clean benchmark split (noise is added synthetically during training)
-python src/models/training/train_resunet.py \
+python models/training/train_resunet.py \
     --dataset-path ./data/benchmark/clean/train \
     --sigma 0.1 \
     --device cpu \
-    --save-path ./src/models/weights/resunet.pth
+    --save-path ./models/weights/resunet.pth
 ```
 
 ### 7. Fast One-Image Comparison
 ```bash
 # Quickly compare algorithms on one sampled image
 python -m denoiser --synthetic --compare bm3d nl-means resunet \
-    --dataset-path ../data/benchmark/clean/test \
     --single-image --sample-seed 42 \
-    --model-path ./models/weights/resunet.pth \
     --output ../results/compare_single_image --plot
 ```
 
@@ -260,9 +253,7 @@ python -m denoiser --synthetic --compare bm3d nl-means resunet \
 ```bash
 # Generate two line graphs: PSNR vs sigma and SSIM vs sigma
 python -m denoiser --synthetic --compare bm3d nl-means resunet \
-    --dataset-path ../data/benchmark/clean/test \
     --single-image --sample-seed 42 \
-    --model-path ./models/weights/resunet.pth \
     --sigma-sweep 0.05,0.1,0.15,0.2 \
     --output ../results/sigma_sweep_compare --plot
 ```
@@ -281,6 +272,10 @@ All metrics compare the denoised image against the clean reference image.
 
 ```
 Low-light-Denoising/
+├── models/
+│   ├── training/
+│   │   └── train_resunet.py
+│   └── weights/
 ├── src/
 │   ├── denoiser/              # Main package
 │   │   ├── __init__.py
@@ -295,10 +290,6 @@ Low-light-Denoising/
 │   │   └── utils/            # Metrics and utilities
 │   │       ├── metrics.py
 │   │       └── noise.py
-│   └── models/
-│       ├── training/
-│       │   └── train_resunet.py
-│       └── weights/
 ├── data/                     # Your datasets
 ├── dependencies/
 │   └── environment.yaml      # Conda environment
@@ -308,21 +299,23 @@ Low-light-Denoising/
 ## Adding Your Own Images
 
 ### For Synthetic Noise Testing
-Place clean images in a folder:
+The CLI uses a fixed synthetic directory: `./data/benchmark/clean/test`.
+Place clean images there:
 ```bash
-mkdir -p data/my_images
-cp your_images/*.png data/my_images/
+mkdir -p data/benchmark/clean/test
+cp your_images/*.png data/benchmark/clean/test/
 
-python -m denoiser --synthetic bm3d --dataset-path data/my_images --plot
+python -m denoiser --synthetic bm3d --plot
 ```
 
 ### For Real-World Paired Images
+The CLI uses a fixed real-world directory: `./data/demo_pair`.
 Organize as clean/noisy pairs:
 ```bash
-mkdir -p data/paired/clean data/paired/noisy
+mkdir -p data/demo_pair/clean data/demo_pair/noisy
 # Place matching clean and noisy images in respective folders
 
-python -m denoiser --real-world bm3d --dataset-path data/paired --plot
+python -m denoiser --real-world bm3d --plot
 ```
 
 ## Troubleshooting
@@ -338,10 +331,11 @@ python -m denoiser --real-world bm3d --dataset-path data/paired --plot
 
 **ResUNet errors:**
 - Ensure `torch` is installed in the same environment used to run commands
-- Provide `--model-path` when running `resunet`
+- Ensure model weights exist at `./models/weights/resunet.pth`
 
 **No images loaded:**
-- Check your `--dataset-path` is correct
+- For synthetic mode, check images under `./data/benchmark/clean/test`
+- For real-world mode, check `./data/demo_pair/clean` and `./data/demo_pair/noisy`
 - Ensure images are in PNG or JPG format
 
 ## Programmatic Usage
@@ -384,7 +378,7 @@ loader = get_dataset_loader('test', noise_sigma=0.1)
 # Initialize algorithms
 bm3d = BM3DDenoiser(sigma_psd=0.1)
 nlmeans = NLMeansDenoiser(sigma=0.1)
-resunet = ResUNetDenoiser(model_path='models/weights/resunet.pth', device='cpu')
+resunet = ResUNetDenoiser(device='cpu')
 
 # Create comparison evaluator
 comparison = ComparisonEvaluator([bm3d, nlmeans, resunet], loader, verbose=True)
@@ -442,7 +436,7 @@ ALGORITHMS = {
 ### Step 3: Use Your Algorithm
 
 ```bash
-python -m denoiser --test cnn --output results/cnn_test
+python -m denoiser --test cnn
 ```
 
 **Requirements for custom algorithms:**
