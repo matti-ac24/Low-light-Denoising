@@ -7,7 +7,7 @@ A modular framework for evaluating and comparing image denoising algorithms. Tes
 ✨ **Multiple Algorithms**: BM3D, Non-Local Means (NL-Means), and Residual U-Net (ResUNet)  
 📊 **Performance Visualization**: Automatic plot generation for PSNR, MSE, and SSIM  
 ⚖️ **Algorithm Comparison**: Side-by-side comparison of multiple algorithms  
-📉 **Sigma Sweep Curves**: Line plots for PSNR vs σ and SSIM vs σ across algorithms  
+📉 **Sigma Range Curves**: Line plots for PSNR vs σ and SSIM vs σ across algorithms  
 📈 **Quality Metrics**: PSNR, MSE, and SSIM evaluation  
 🎯 **Flexible Datasets**: Built-in test images, synthetic noise, or real-world paired images  
 💾 **Export Results**: CSV metrics and denoised images
@@ -114,8 +114,8 @@ python -m denoiser --synthetic --compare bm3d nl-means resunet \
 # Compare across multiple sigma values and generate line plots
 python -m denoiser --synthetic --compare bm3d nl-means resunet \
     --single-image --sample-seed 42 \
-    --sigma-sweep 0.05,0.1,0.15,0.2 \
-    --output ../results/sigma_sweep_compare --plot
+    --sigma-range 0.05,0.2,0.05 \
+    --output ../results/sigma_range_compare --plot
 ```
 
 ## CLI Flags Reference
@@ -132,7 +132,7 @@ python -m denoiser --synthetic --compare bm3d nl-means resunet \
 - `--sigma FLOAT` - Noise level (default: 0.1)
 - `--single-image` - Use one automatically selected image from dataset (fast runs)
 - `--sample-seed INT` - Seed for deterministic image sampling with `--single-image` (default: 42)
-- `--sigma-sweep v1,v2,...` - Run synthetic evaluation across multiple sigma values and generate sweep plots
+- `--sigma-range start,end,step` - Run synthetic evaluation across a sigma range and generate range plots
 
 ### Algorithm Parameters
 - `--patch-size INT` - Patch size for NL-Means (default: 5)
@@ -141,7 +141,7 @@ python -m denoiser --synthetic --compare bm3d nl-means resunet \
 - `--device STR` - Runtime device for ResUNet (`auto`, `cpu`, `cuda`)
 
 ### Output Options
-- `--output DIR` - Save comparison and sigma-sweep results to a directory
+- `--output DIR` - Save comparison and sigma-range results to a directory
 - `--plot` - Generate performance plots
 - `--show-plot` - Display plots interactively
 - `--show-images` - Display side-by-side comparison of noisy and denoised images
@@ -151,11 +151,11 @@ python -m denoiser --synthetic --compare bm3d nl-means resunet \
 ### Comparison Mode
 - `--compare` - Enable comparison mode (optional if multiple algorithms specified)
 
-### Sigma Sweep Notes
-- `--sigma-sweep` works with `--synthetic` datasets
-- During sigma sweep, dataset noise uses values from `--sigma-sweep`
-- During sigma sweep, BM3D/NL-Means algorithm sigma remains controlled by `--sigma`
-- For reproducible single-image sweeps, use `--single-image --sample-seed <seed>`
+### Sigma Range Notes
+- `--sigma-range` works with `--synthetic` datasets
+- `--sigma-range` format is `start,end,step` (example: `0.05,0.2,0.05`)
+- During sigma-range runs, dataset noise and BM3D/NL-Means sigma are updated per step
+- For reproducible single-image ranges, use `--single-image --sample-seed <seed>`
 
 ## Output Files
 
@@ -182,12 +182,16 @@ results/
     └── comparison_bm3d_vs_nl_means.png
 ```
 
-### Sigma Sweep Mode
+### Sigma Range Mode (Single Algorithm)
 ```
 results/
-├── sigma_sweep_summary.csv             # Columns: sigma, algorithm, avg_psnr, avg_ssim
-├── psnr_vs_sigma.png                   # Line plot: average PSNR vs sigma
-└── ssim_vs_sigma.png                   # Line plot: average SSIM vs sigma
+└── single/
+    └── bm3d/
+        ├── metrics/
+        │   └── sigma_range_summary.csv
+        └── plots/
+            ├── psnr_vs_sigma_range.png
+            └── ssim_vs_sigma_range.png
 ```
 
 ## Example Workflows
@@ -254,8 +258,8 @@ python -m denoiser --synthetic --compare bm3d nl-means resunet \
 # Generate two line graphs: PSNR vs sigma and SSIM vs sigma
 python -m denoiser --synthetic --compare bm3d nl-means resunet \
     --single-image --sample-seed 42 \
-    --sigma-sweep 0.05,0.1,0.15,0.2 \
-    --output ../results/sigma_sweep_compare --plot
+    --sigma-range 0.05,0.2,0.05 \
+    --output ../results/sigma_range_compare --plot
 ```
 
 ## Performance Metrics

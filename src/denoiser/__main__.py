@@ -24,56 +24,79 @@ def format_algorithm_for_path(name: str) -> str:
     return name.strip().lower().replace(' ', '-').replace('_', '-')
 
 
-def parse_sigma_sweep(sigma_sweep_arg: str) -> list[float]:
+def parse_sigma_range(sigma_range_arg: str) -> list[float]:
 
-    values = [item.strip() for item in sigma_sweep_arg.split(',') if item.strip()]
-    if not values:
-        raise ValueError("--sigma-sweep must contain at least one sigma value")
+    values = [item.strip() for item in sigma_range_arg.split(',') if item.strip()]
+    if len(values) != 3:
+        raise ValueError("--sigma-range must be in the format: start,end,step")
 
-    sigmas = []
-    for value in values:
-        sigma = float(value)
-        if sigma <= 0:
-            raise ValueError("Sigma values in --sigma-sweep must be > 0")
-        sigmas.append(sigma)
+    start = float(values[0])
+    end = float(values[1])
+    step = float(values[2])
+
+    if start <= 0 or end <= 0:
+        raise ValueError("Start and end values in --sigma-range must be > 0")
+    if step <= 0:
+        raise ValueError("Step value in --sigma-range must be > 0")
+    if end < start:
+        raise ValueError("End value in --sigma-range must be >= start value")
+
+    sigmas: list[float] = []
+    current = start
+    epsilon = step * 1e-9
+    while current <= end + epsilon:
+        sigmas.append(round(current, 10))
+        current += step
+
+    if not sigmas:
+        raise ValueError("--sigma-range produced no sigma values")
 
     return sigmas
 
 
-def run_sigma_sweep(
+def run_sigma_range(
     args: argparse.Namespace,
     dataset_type: str,
     dataset_path: str,
     algorithms_list: list[str],
     is_comparison: bool,
+    output_dir: Path,
 ) -> int:
 
     import csv
     import numpy as np
     import matplotlib.pyplot as plt
 
-    sigma_values = parse_sigma_sweep(args.sigma_sweep)
+    sigma_values = parse_sigma_range(args.sigma_range)
 
     if dataset_type != 'synthetic':
-        raise ValueError("--sigma-sweep is supported only with --synthetic datasets")
+        raise ValueError("--sigma-range is supported only with --synthetic datasets")
 
-    output_dir = Path(args.output) if args.output else Path('results/sigma_sweep')
     output_dir.mkdir(parents=True, exist_ok=True)
+    metrics_dir = output_dir / 'metrics'
+    plots_dir = output_dir / 'plots'
+    metrics_dir.mkdir(parents=True, exist_ok=True)
+    plots_dir.mkdir(parents=True, exist_ok=True)
 
     if args.verbose:
-        print(f"\nRunning sigma sweep for values: {sigma_values}")
+        print(f"\nRunning sigma range with values: {sigma_values}")
 
     algo_metrics: dict[str, dict[str, list[float]]] = {}
     for algo_name in algorithms_list:
         algorithm_class = get_algorithm(algo_name)
-        display_name = algorithm_class(**build_algorithm_params(algo_name, args)).name
+        algo_params = build_algorithm_params(algo_name, args)
+        if 'sigma' in algo_params:
+            algo_params['sigma'] = sigma_values[0]
+        if 'sigma_psd' in algo_params:
+            algo_params['sigma_psd'] = sigma_values[0]
+        display_name = algorithm_class(**algo_params).name
         if display_name not in algo_metrics:
             algo_metrics[display_name] = {'psnr': [], 'ssim': []}
 
     for sigma in sigma_values:
         if args.verbose:
             print(f"\n{'-'*70}")
-            print(f"Sigma sweep step: σ={sigma:.3f}")
+            print(f"Sigma range step: σ={sigma:.3f}")
             print(f"{'-'*70}")
 
         dataset_loader = get_dataset_loader(
@@ -89,6 +112,10 @@ def run_sigma_sweep(
             for algo_name in algorithms_list:
                 algorithm_class = get_algorithm(algo_name)
                 algo_params = build_algorithm_params(algo_name, args)
+                if 'sigma' in algo_params:
+                    algo_params['sigma'] = sigma
+                if 'sigma_psd' in algo_params:
+                    algo_params['sigma_psd'] = sigma
                 algorithms.append(algorithm_class(**algo_params))
 
             comparison_evaluator = ComparisonEvaluator(
@@ -107,6 +134,10 @@ def run_sigma_sweep(
             algorithm_name = algorithms_list[0]
             algorithm_class = get_algorithm(algorithm_name)
             algo_params = build_algorithm_params(algorithm_name, args)
+            if 'sigma' in algo_params:
+                algo_params['sigma'] = sigma
+            if 'sigma_psd' in algo_params:
+                algo_params['sigma_psd'] = sigma
             algorithm = algorithm_class(**algo_params)
 
             evaluator = Evaluator(
@@ -121,7 +152,7 @@ def run_sigma_sweep(
             algo_metrics[algorithm.name]['psnr'].append(float(np.mean(denoised_psnr)))
             algo_metrics[algorithm.name]['ssim'].append(float(np.mean(denoised_ssim)))
 
-    summary_csv_path = output_dir / 'sigma_sweep_summary.csv'
+    summary_csv_path = metrics_dir / 'sigma_range_summary.csv'
     with open(summary_csv_path, 'w', newline='') as f:
         fieldnames = ['sigma', 'algorithm', 'avg_psnr', 'avg_ssim']
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -148,7 +179,7 @@ def run_sigma_sweep(
     plt.grid(alpha=0.3)
     plt.legend()
     plt.tight_layout()
-    psnr_plot_path = output_dir / 'psnr_vs_sigma.png'
+    psnr_plot_path = plots_dir / 'psnr_vs_sigma_range.png'
     plt.savefig(psnr_plot_path, dpi=150, bbox_inches='tight')
     if args.show_plot:
         plt.show()
@@ -166,14 +197,14 @@ def run_sigma_sweep(
     plt.ylim(0, 1)
     plt.legend()
     plt.tight_layout()
-    ssim_plot_path = output_dir / 'ssim_vs_sigma.png'
+    ssim_plot_path = plots_dir / 'ssim_vs_sigma_range.png'
     plt.savefig(ssim_plot_path, dpi=150, bbox_inches='tight')
     if args.show_plot:
         plt.show()
     else:
         plt.close()
 
-    print(f"\nSigma sweep complete!")
+    print(f"\nSigma range complete!")
     print(f"Results saved to: {output_dir}")
     if args.verbose:
         print(f"  - Summary CSV: {summary_csv_path}")
@@ -253,10 +284,10 @@ Examples:
     )
 
     parser.add_argument(
-        '--sigma-sweep',
+        '--sigma-range',
         type=str,
         default=None,
-        help='Comma-separated sigma values for sweep plots (e.g. 0.05,0.1,0.15)'
+        help='Sigma range as start,end,step (e.g. 0.05,0.2,0.05)'
     )
 
     parser.add_argument(
@@ -306,7 +337,7 @@ Examples:
         '--output',
         type=str,
         default=None,
-        help='Output directory for comparison and sigma-sweep results (ignored in single mode)'
+        help='Output directory for comparison and sigma-range results (ignored in single mode)'
     )
     
     parser.add_argument(
@@ -394,10 +425,33 @@ def main() -> int:
         algorithms_list = args.algorithm if isinstance(args.algorithm, list) else [args.algorithm]
         is_comparison = args.compare or len(algorithms_list) > 1
 
-        if args.sigma_sweep:
+        if args.sigma_range:
             if dataset_type != 'synthetic':
-                raise ValueError("--sigma-sweep can only be used with --synthetic")
-            return run_sigma_sweep(args, dataset_type, dataset_path, algorithms_list, is_comparison)
+                raise ValueError("--sigma-range can only be used with --synthetic")
+
+            if is_comparison:
+                output_dir = Path(args.output) if args.output else Path('results/comparison')
+            else:
+                algorithm_name = algorithms_list[0]
+                algorithm_class = get_algorithm(algorithm_name)
+                algorithm = algorithm_class(**build_algorithm_params(algorithm_name, args))
+                output_dir = (
+                    project_root
+                    / 'results'
+                    / 'single'
+                    / format_algorithm_for_path(algorithm.name)
+                )
+                if args.output and args.verbose:
+                    print(f"Note: --output is ignored in single mode. Using: {output_dir}")
+
+            return run_sigma_range(
+                args,
+                dataset_type,
+                dataset_path,
+                algorithms_list,
+                is_comparison,
+                output_dir,
+            )
 
         # Load dataset
         dataset_loader = get_dataset_loader(
