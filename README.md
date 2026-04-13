@@ -59,7 +59,7 @@ python -m denoiser --test bm3d nl-means resunet --device cpu --plot
 python -m denoiser --test bm3d --plot
 ```
 
-Single-mode output is always written under `results/single/<algorithm>/`.
+Single-mode output is always written under `results/single/<algorithm>/<dataset-type>/`.
 
 ### Dataset Options
 
@@ -164,14 +164,15 @@ python -m denoiser --synthetic --compare bm3d nl-means resunet \
 results/
 └── single/
     └── bm3d/
-        ├── metrics/
-        │   └── metrics_sigma_0p1.csv
-        ├── plots/
-        │   └── metrics_plot_bm3d_sigma_0p1.png
-        └── images/
-            ├── camera_denoised_sigma_0p1.png
-            ├── astronaut_denoised_sigma_0p1.png
-            └── text_denoised_sigma_0p1.png
+        └── test/
+            ├── metrics/
+            │   └── metrics_sigma_0p1.csv
+            ├── plots/
+            │   └── metrics_plot_bm3d_sigma_0p1.png
+            └── images/
+                ├── camera_denoised_sigma_0p1.png
+                ├── astronaut_denoised_sigma_0p1.png
+                └── text_denoised_sigma_0p1.png
 ```
 
 ### Comparison Mode
@@ -187,11 +188,12 @@ results/
 results/
 └── single/
     └── bm3d/
-        ├── metrics/
-        │   └── sigma_range_summary.csv
-        └── plots/
-            ├── psnr_vs_sigma_range.png
-            └── ssim_vs_sigma_range.png
+        └── synthetic/
+            ├── metrics/
+            │   └── sigma_range_summary.csv
+            └── plots/
+                ├── psnr_vs_sigma_range.png
+                └── ssim_vs_sigma_range.png
 ```
 
 ## Example Workflows

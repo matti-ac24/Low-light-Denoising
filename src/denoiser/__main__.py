@@ -456,6 +456,7 @@ def main() -> int:
                     / 'results'
                     / 'single'
                     / format_algorithm_for_path(algorithm.name)
+                    / dataset_type
                 )
                 if args.output and args.verbose:
                     print(f"Note: --output is ignored in single mode. Using: {output_dir}")
@@ -542,6 +543,7 @@ def main() -> int:
                 / 'results'
                 / 'single'
                 / format_algorithm_for_path(algorithm.name)
+                / dataset_type
             )
 
             if args.output and args.verbose:
