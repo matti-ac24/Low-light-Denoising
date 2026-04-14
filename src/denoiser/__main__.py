@@ -241,6 +241,9 @@ Examples:
 
     # Run Residual U-Net CNN with pretrained weights
         python -m denoiser --test resunet --device cpu
+
+    # Run NAFNet CNN with pretrained weights
+        python -m denoiser --test nafnet --device cpu
   
   # Compare algorithms side-by-side
     python -m denoiser --test --compare bm3d nl-means --output results/comparison --plot
@@ -334,7 +337,7 @@ Examples:
         '--base-channels',
         type=int,
         default=32,
-        help='Base feature channels for ResUNet architecture (default: 32)'
+        help='Base feature channels for ResUNet and NAFNet architectures (default: 32)'
     )
 
     parser.add_argument(
@@ -342,6 +345,12 @@ Examples:
         type=str,
         default='auto',
         help="Runtime device for CNN inference: 'auto', 'cpu', or 'cuda'"
+    )
+
+    parser.add_argument(
+        '--show-architecture',
+        action='store_true',
+        help='Print loaded ResUNet/NAFNet architecture in terminal during inference'
     )
     
     # Output options
@@ -398,6 +407,13 @@ def build_algorithm_params(algorithm_name: str, args: argparse.Namespace) -> dic
         return {
             'base_channels': args.base_channels,
             'device': args.device,
+            'show_architecture': args.show_architecture,
+        }
+    if algorithm_name == 'nafnet':
+        return {
+            'base_channels': args.base_channels,
+            'device': args.device,
+            'show_architecture': args.show_architecture,
         }
     else:  # BM3D and other algorithms
         return {'sigma_psd': args.sigma}

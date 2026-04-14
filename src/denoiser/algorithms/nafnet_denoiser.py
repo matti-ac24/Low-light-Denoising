@@ -1,4 +1,4 @@
-# Residual U-Net CNN denoising algorithm
+# NAFNet denoising algorithm
 
 from __future__ import annotations
 
@@ -10,97 +10,163 @@ import numpy as np
 from .base import BaseDenoiser
 
 
-def _build_resunet(in_channels: int, base_channels: int):
+def _build_nafnet(
+    in_channels: int,
+    base_channels: int,
+    num_blocks: int = 2,
+    middle_blocks: int = 4,
+    expansion: int = 2,
+):
     import torch
     import torch.nn as nn
 
-    class _ResidualBlock(nn.Module):
+    class _LayerNorm2d(nn.Module):
+        def __init__(self, channels: int, eps: float = 1e-6) -> None:
+            super().__init__()
+            self.weight = nn.Parameter(torch.ones(1, channels, 1, 1))
+            self.bias = nn.Parameter(torch.zeros(1, channels, 1, 1))
+            self.eps = eps
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            mean = x.mean(dim=1, keepdim=True)
+            variance = x.var(dim=1, keepdim=True, unbiased=False)
+            normalized = (x - mean) / torch.sqrt(variance + self.eps)
+            return normalized * self.weight + self.bias
+
+    class _SimpleGate(nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            first_half, second_half = torch.chunk(x, 2, dim=1)
+            return first_half * second_half
+
+    class _NAFBlock(nn.Module):
         def __init__(self, channels: int) -> None:
             super().__init__()
 
-            self.block = nn.Sequential(
-                nn.Conv2d(channels, channels, kernel_size=3, padding=1),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(channels, channels, kernel_size=3, padding=1),
+            hidden_channels = channels * expansion
+            expanded_channels = hidden_channels * 2
+
+            self.norm1 = _LayerNorm2d(channels)
+            self.pw_conv1 = nn.Conv2d(channels, expanded_channels, kernel_size=1)
+            self.dw_conv1 = nn.Conv2d(
+                expanded_channels,
+                expanded_channels,
+                kernel_size=3,
+                padding=1,
+                groups=expanded_channels,
             )
-            self.relu = nn.ReLU(inplace=True)
+            self.gate = _SimpleGate()
+            self.pw_conv2 = nn.Conv2d(hidden_channels, channels, kernel_size=1)
+
+            self.norm2 = _LayerNorm2d(channels)
+            self.pw_conv3 = nn.Conv2d(channels, expanded_channels, kernel_size=1)
+            self.dw_conv2 = nn.Conv2d(
+                expanded_channels,
+                expanded_channels,
+                kernel_size=3,
+                padding=1,
+                groups=expanded_channels,
+            )
+            self.pw_conv4 = nn.Conv2d(hidden_channels, channels, kernel_size=1)
+
+            self.beta = nn.Parameter(torch.zeros(1, channels, 1, 1))
+            self.gamma = nn.Parameter(torch.zeros(1, channels, 1, 1))
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
-            return self.relu(x + self.block(x))
+            residual = x
+            x = self.norm1(x)
+            x = self.pw_conv1(x)
+            x = self.dw_conv1(x)
+            x = self.gate(x)
+            x = self.pw_conv2(x)
+            x = residual + x * self.beta
 
+            residual = x
+            x = self.norm2(x)
+            x = self.pw_conv3(x)
+            x = self.dw_conv2(x)
+            x = self.gate(x)
+            x = self.pw_conv4(x)
+            return residual + x * self.gamma
 
-    class _DoubleConv(nn.Module):
-        def __init__(self, in_channels: int, out_channels: int) -> None:
+    class _ResidualGroup(nn.Module):
+        def __init__(self, channels: int, block_count: int) -> None:
             super().__init__()
-
-            self.block = nn.Sequential(
-                nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
-                nn.ReLU(inplace=True),
-            )
+            self.blocks = nn.Sequential(*[_NAFBlock(channels) for _ in range(block_count)])
+            self.conv = nn.Conv2d(channels, channels, kernel_size=3, padding=1)
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
-            return self.block(x)
+            return x + self.conv(self.blocks(x))
 
-    class ResidualUNet(nn.Module):
+    class NAFNet(nn.Module):
         def __init__(self, channels: int, features: int) -> None:
             super().__init__()
 
-            self.enc1 = _DoubleConv(channels, features)
-            self.res1 = _ResidualBlock(features)
-            self.pool1 = nn.MaxPool2d(2)
+            self.intro = nn.Conv2d(channels, features, kernel_size=3, padding=1)
 
-            self.enc2 = _DoubleConv(features, features * 2)
-            self.res2 = _ResidualBlock(features * 2)
-            self.pool2 = nn.MaxPool2d(2)
+            self.enc1 = _ResidualGroup(features, num_blocks)
+            self.down1 = nn.Conv2d(features, features * 2, kernel_size=2, stride=2)
 
-            self.bottleneck = _DoubleConv(features * 2, features * 4)
+            self.enc2 = _ResidualGroup(features * 2, num_blocks)
+            self.down2 = nn.Conv2d(features * 2, features * 4, kernel_size=2, stride=2)
+
+            self.middle = _ResidualGroup(features * 4, middle_blocks)
 
             self.up2 = nn.ConvTranspose2d(features * 4, features * 2, kernel_size=2, stride=2)
-            self.dec2 = _DoubleConv(features * 4, features * 2)
+            self.dec2 = _ResidualGroup(features * 4, num_blocks)
+            self.dec2_reduce = nn.Conv2d(features * 4, features * 2, kernel_size=1)
 
             self.up1 = nn.ConvTranspose2d(features * 2, features, kernel_size=2, stride=2)
-            self.dec1 = _DoubleConv(features * 2, features)
+            self.dec1 = _ResidualGroup(features * 2, num_blocks)
+            self.dec1_reduce = nn.Conv2d(features * 2, features, kernel_size=1)
 
             self.out_conv = nn.Conv2d(features, channels, kernel_size=1)
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
-            e1 = self.res1(self.enc1(x))
-            e2 = self.res2(self.enc2(self.pool1(e1)))
-            b = self.bottleneck(self.pool2(e2))
+            shallow = self.intro(x)
 
-            d2 = self.up2(b)
-            d2 = torch.cat([d2, e2], dim=1)
-            d2 = self.dec2(d2)
+            enc1 = self.enc1(shallow)
+            enc2 = self.enc2(self.down1(enc1))
+            middle = self.middle(self.down2(enc2))
 
-            d1 = self.up1(d2)
-            d1 = torch.cat([d1, e1], dim=1)
-            d1 = self.dec1(d1)
+            dec2 = self.up2(middle)
+            dec2 = torch.cat([dec2, enc2], dim=1)
+            dec2 = self.dec2_reduce(self.dec2(dec2))
 
-            noise_residual = self.out_conv(d1)
-            return torch.clamp(x - noise_residual, 0.0, 1.0)
+            dec1 = self.up1(dec2)
+            dec1 = torch.cat([dec1, enc1], dim=1)
+            dec1 = self.dec1_reduce(self.dec1(dec1))
 
-    return ResidualUNet(in_channels, base_channels)
+            residual = self.out_conv(dec1)
+            return torch.clamp(x - residual, 0.0, 1.0)
+
+    return NAFNet(in_channels, base_channels)
 
 
-class ResUNetDenoiser(BaseDenoiser):
-    # Initialise the Residual U-Net denoiser with fixed model path and architecture/device settings
+class NAFNetDenoiser(BaseDenoiser):
     def __init__(
         self,
         base_channels: int = 32,
+        num_blocks: int = 2,
+        middle_blocks: int = 4,
+        expansion: int = 2,
         device: str = 'auto',
         show_architecture: bool = False,
     ) -> None:
-        model_path = Path(__file__).resolve().parents[3] / 'models' / 'weights' / 'resunet.pth'
+        model_path = Path(__file__).resolve().parents[3] / 'models' / 'weights' / 'nafnet.pth'
         super().__init__(
             model_path=str(model_path),
             base_channels=base_channels,
+            num_blocks=num_blocks,
+            middle_blocks=middle_blocks,
+            expansion=expansion,
             device=device,
             show_architecture=show_architecture,
         )
         self.model_path = model_path
         self.base_channels = base_channels
+        self.num_blocks = num_blocks
+        self.middle_blocks = middle_blocks
+        self.expansion = expansion
         self.device = device
         self.show_architecture = show_architecture
 
@@ -108,18 +174,17 @@ class ResUNetDenoiser(BaseDenoiser):
         self._model_channels: Optional[int] = None
         self._architecture_printed = False
 
-    # Infer expected channel count directly from checkpoint tensors
     def _infer_checkpoint_channels(self, state_dict: dict) -> int:
-        enc1_key = 'enc1.block.0.weight'
+        intro_key = 'intro.weight'
         out_key = 'out_conv.weight'
 
-        if enc1_key not in state_dict or out_key not in state_dict:
+        if intro_key not in state_dict or out_key not in state_dict:
             raise KeyError(
                 "Checkpoint missing required keys for channel inference: "
-                f"'{enc1_key}' and '{out_key}'"
+                f"'{intro_key}' and '{out_key}'"
             )
 
-        in_channels = int(state_dict[enc1_key].shape[1])
+        in_channels = int(state_dict[intro_key].shape[1])
         out_channels = int(state_dict[out_key].shape[0])
         if in_channels != out_channels:
             raise ValueError(
@@ -129,7 +194,6 @@ class ResUNetDenoiser(BaseDenoiser):
 
         return in_channels
 
-    # Resolve runtime device
     def _resolve_device(self):
         import torch
 
@@ -141,7 +205,6 @@ class ResUNetDenoiser(BaseDenoiser):
 
         return torch.device('cpu')
 
-    # Load model weights once for a given number of channels
     def _load_model(self, channels: int):
         import torch
 
@@ -167,7 +230,18 @@ class ResUNetDenoiser(BaseDenoiser):
             }
 
         model_channels = self._infer_checkpoint_channels(state_dict)
-        model = _build_resunet(in_channels=model_channels, base_channels=self.base_channels)
+        base_channels = int(checkpoint.get('base_channels', self.base_channels)) if isinstance(checkpoint, dict) else self.base_channels
+        num_blocks = int(checkpoint.get('num_blocks', self.num_blocks)) if isinstance(checkpoint, dict) else self.num_blocks
+        middle_blocks = int(checkpoint.get('middle_blocks', self.middle_blocks)) if isinstance(checkpoint, dict) else self.middle_blocks
+        expansion = int(checkpoint.get('expansion', self.expansion)) if isinstance(checkpoint, dict) else self.expansion
+
+        model = _build_nafnet(
+            in_channels=model_channels,
+            base_channels=base_channels,
+            num_blocks=num_blocks,
+            middle_blocks=middle_blocks,
+            expansion=expansion,
+        )
 
         model.load_state_dict(state_dict)
         model.to(self._resolve_device())
@@ -181,18 +255,15 @@ class ResUNetDenoiser(BaseDenoiser):
         self._model_channels = model_channels
         return model
 
-    # Denoise an image using a pretrained Residual U-Net model
     def denoise(self, noisy_image: np.ndarray) -> np.ndarray:
         import torch
         import torch.nn.functional as F
 
-        # Ensure float range [0, 1]
         if noisy_image.dtype not in (np.float32, np.float64):
             noisy_image = noisy_image.astype(np.float32) / 255.0
 
         noisy_image = np.clip(noisy_image, 0.0, 1.0).astype(np.float32)
 
-        # Convert to BCHW tensor
         if noisy_image.ndim == 2:
             tensor = torch.from_numpy(noisy_image).unsqueeze(0).unsqueeze(0)
             channels = 1
@@ -209,7 +280,6 @@ class ResUNetDenoiser(BaseDenoiser):
         device = self._resolve_device()
         tensor = tensor.to(device)
 
-        # Adapt input channels to the checkpoint's expected channels.
         if channels != model_channels:
             if channels == 1 and model_channels == 3:
                 tensor = tensor.repeat(1, 3, 1, 1)
@@ -220,7 +290,6 @@ class ResUNetDenoiser(BaseDenoiser):
                     f"Unsupported channel conversion from {channels} to {model_channels}"
                 )
 
-        # Pad to match two downsampling stages (factor 4)
         _, _, height, width = tensor.shape
         pad_h = (4 - (height % 4)) % 4
         pad_w = (4 - (width % 4)) % 4
@@ -230,11 +299,9 @@ class ResUNetDenoiser(BaseDenoiser):
         with torch.no_grad():
             output = model(tensor)
 
-        # Remove padding
         if pad_h > 0 or pad_w > 0:
             output = output[:, :, :height, :width]
 
-        # Convert back to original channel layout expected by metrics/output flow.
         if channels != model_channels:
             if channels == 1 and model_channels == 3:
                 output = output.mean(dim=1, keepdim=True)

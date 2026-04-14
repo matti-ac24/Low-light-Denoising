@@ -17,7 +17,7 @@ SRC_ROOT = Path(__file__).resolve().parents[2]
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from denoiser.algorithms.resunet_denoiser import _build_resunet
+from denoiser.algorithms.nafnet_denoiser import _build_nafnet
 
 
 class NoisyPatchDataset(Dataset):
@@ -136,7 +136,7 @@ def describe_model(model: torch.nn.Module, channels: int, patch_size: int, devic
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description='Train Residual U-Net denoiser')
+    parser = argparse.ArgumentParser(description='Train NAFNet denoiser')
 
     parser.add_argument('--dataset-path', type=str, required=True, help='Path to clean images folder')
     parser.add_argument('--epochs', type=int, default=20, help='Number of epochs')
@@ -157,13 +157,16 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--channels', type=int, choices=[1, 3], default=3, help='Model input channels')
-    parser.add_argument('--base-channels', type=int, default=32, help='ResUNet base feature channels')
-    parser.add_argument('--device', type=str, default='auto', help="auto | cpu | cuda")
+    parser.add_argument('--base-channels', type=int, default=32, help='NAFNet base feature channels')
+    parser.add_argument('--num-blocks', type=int, default=2, help='Residual blocks per encoder/decoder stage')
+    parser.add_argument('--middle-blocks', type=int, default=4, help='Residual blocks in the bottleneck')
+    parser.add_argument('--expansion', type=int, default=2, help='Feed-forward expansion factor')
+    parser.add_argument('--device', type=str, default='auto', help='auto | cpu | cuda')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument(
         '--save-path',
         type=str,
-        default=str((Path(__file__).resolve().parents[1] / 'weights' / 'resunet.pth')),
+        default=str((Path(__file__).resolve().parents[1] / 'weights' / 'nafnet.pth')),
         help='Output checkpoint path',
     )
 
@@ -214,7 +217,13 @@ def main() -> int:
     )
     dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=0)
 
-    model = _build_resunet(in_channels=args.channels, base_channels=args.base_channels).to(device)
+    model = _build_nafnet(
+        in_channels=args.channels,
+        base_channels=args.base_channels,
+        num_blocks=args.num_blocks,
+        middle_blocks=args.middle_blocks,
+        expansion=args.expansion,
+    ).to(device)
     model_description = describe_model(model, channels=args.channels, patch_size=args.patch_size, device=device)
     print('\n' + model_description + '\n')
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -254,6 +263,9 @@ def main() -> int:
         'state_dict': model.state_dict(),
         'channels': args.channels,
         'base_channels': args.base_channels,
+        'num_blocks': args.num_blocks,
+        'middle_blocks': args.middle_blocks,
+        'expansion': args.expansion,
         'sigma': args.sigma,
         'sigma_min': sigma_min,
         'sigma_max': sigma_max,
