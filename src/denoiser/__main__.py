@@ -337,7 +337,7 @@ Examples:
         '--base-channels',
         type=int,
         default=32,
-        help='Base feature channels for ResUNet and NAFNet architectures (default: 32)'
+        help='Base feature channels for ResUNet, NAFNet, and Restormer architectures (default: 32)'
     )
 
     parser.add_argument(
@@ -350,7 +350,7 @@ Examples:
     parser.add_argument(
         '--show-architecture',
         action='store_true',
-        help='Print loaded ResUNet/NAFNet architecture in terminal during inference'
+        help='Print loaded ResUNet/NAFNet/Restormer architecture in terminal during inference'
     )
     
     # Output options
@@ -410,6 +410,12 @@ def build_algorithm_params(algorithm_name: str, args: argparse.Namespace) -> dic
             'show_architecture': args.show_architecture,
         }
     if algorithm_name == 'nafnet':
+        return {
+            'base_channels': args.base_channels,
+            'device': args.device,
+            'show_architecture': args.show_architecture,
+        }
+    if algorithm_name in ['restormer', 'restorer']:
         return {
             'base_channels': args.base_channels,
             'device': args.device,
