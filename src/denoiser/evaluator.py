@@ -393,6 +393,8 @@ class ComparisonEvaluator:
         
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
+        plots_dir = output_dir / 'plots'
+        plots_dir.mkdir(parents=True, exist_ok=True)
         
         # Get image names from the first algorithm's results
         first_algo = list(self.all_results.keys())[0]
@@ -481,7 +483,7 @@ class ComparisonEvaluator:
         
         # Save plot
         algo_names = '_vs_'.join([a.name.replace(' ', '_').lower() for a in self.algorithms])
-        plot_path = output_dir / f'comparison_{algo_names}.png'
+        plot_path = plots_dir / f'comparison_{algo_names}.png'
         plt.savefig(plot_path, dpi=150, bbox_inches='tight')
         
         if self.verbose:
@@ -501,10 +503,12 @@ class ComparisonEvaluator:
         
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
+        metrics_dir = output_dir / 'metrics'
+        metrics_dir.mkdir(parents=True, exist_ok=True)
         
         import csv
         
-        csv_path = output_dir / 'comparison_summary.csv'
+        csv_path = metrics_dir / 'comparison_summary.csv'
         
         # Get image names from first algorithm
         first_algo = list(self.all_results.keys())[0]

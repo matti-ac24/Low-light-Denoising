@@ -25,6 +25,28 @@ def format_algorithm_for_path(name: str) -> str:
     return name.strip().lower().replace(' ', '-').replace('_', '-')
 
 
+def build_comparison_folder_name(algorithm_names: list[str]) -> str:
+
+    normalized = sorted(format_algorithm_for_path(name) for name in algorithm_names)
+    return '_vs_'.join(normalized)
+
+
+def resolve_comparison_output_dir(
+    project_root: Path,
+    output_arg: str | None,
+    dataset_type: str,
+    algorithm_names: list[str],
+) -> Path:
+
+    base_output_dir = Path(output_arg) if output_arg else project_root / DEFAULT_COMPARISON_OUTPUT_REL_PATH
+    comparison_dir = base_output_dir / build_comparison_folder_name(algorithm_names) / dataset_type
+
+    for sub_dir in ['images', 'metrics', 'plots']:
+        (comparison_dir / sub_dir).mkdir(parents=True, exist_ok=True)
+
+    return comparison_dir
+
+
 def parse_sigma_range(sigma_range_arg: str) -> list[float]:
 
     values = [item.strip() for item in sigma_range_arg.split(',') if item.strip()]
@@ -463,7 +485,18 @@ def main() -> int:
                 raise ValueError("--sigma-range can only be used with --synthetic")
 
             if is_comparison:
-                output_dir = Path(args.output) if args.output else project_root / DEFAULT_COMPARISON_OUTPUT_REL_PATH
+                display_names: list[str] = []
+                for algo_name in algorithms_list:
+                    algorithm_class = get_algorithm(algo_name)
+                    algorithm = algorithm_class(**build_algorithm_params(algo_name, args))
+                    display_names.append(algorithm.name)
+
+                output_dir = resolve_comparison_output_dir(
+                    project_root,
+                    args.output,
+                    dataset_type,
+                    display_names,
+                )
             else:
                 algorithm_name = algorithms_list[0]
                 algorithm_class = get_algorithm(algorithm_name)
@@ -519,7 +552,13 @@ def main() -> int:
             if args.show_images:
                 comparison_evaluator.show_image_comparison(num_images=args.num_display)
 
-            output_dir = Path(args.output) if args.output else project_root / DEFAULT_COMPARISON_OUTPUT_REL_PATH
+            display_names = [algorithm.name for algorithm in algorithms]
+            output_dir = resolve_comparison_output_dir(
+                project_root,
+                args.output,
+                dataset_type,
+                display_names,
+            )
             comparison_evaluator.save_comparison_summary(output_dir)
             comparison_evaluator.plot_comparison(output_dir, show_plot=args.show_plot)
             print(f"\nComparison results saved to: {output_dir}")

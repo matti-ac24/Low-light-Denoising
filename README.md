@@ -1,10 +1,10 @@
 # Low-light Image Denoising Framework
 
-A modular framework for evaluating and comparing image denoising algorithms. It currently includes BM3D, Non-Local Means, ResUNet, and NAFNet.
+A modular framework for evaluating and comparing image denoising algorithms. It currently includes BM3D, Non-Local Means, ResUNet, NAFNet, and Restormer.
 
 ## Features
 
-- Multiple algorithms: BM3D, NL-Means, ResUNet, and NAFNet
+- Multiple algorithms: BM3D, NL-Means, ResUNet, NAFNet, and Restormer
 - Single-algorithm evaluation and multi-algorithm comparison
 - PSNR, MSE, and SSIM metrics
 - Automatic plots and CSV exports
@@ -30,7 +30,7 @@ pip install numpy matplotlib scikit-image bm3d torch tqdm
 
 ```bash
 cd src
-python -m denoiser --test bm3d --plot
+python -m denoiser --test bm3d
 ```
 
 ## Usage
@@ -47,8 +47,9 @@ python -m denoiser --test nafnet --device cpu
 ### Compare Multiple Algorithms
 
 ```bash
-python -m denoiser --test bm3d nl-means --plot
-python -m denoiser --test bm3d nl-means resunet nafnet --device cpu --plot
+python -m denoiser --test bm3d nl-means
+python -m denoiser --test bm3d nl-means resunet nafnet --device cpu
+python -m denoiser --test bm3d nl-means restormer --device cpu
 ```
 
 ### Dataset Modes
@@ -99,13 +100,23 @@ python -m denoiser --test nafnet --base-channels 32 --device cpu
 python -m denoiser --test nafnet --device cpu --show-architecture
 ```
 
+Restormer:
+
+```bash
+python -m denoiser --test restormer --base-channels 32 --device cpu
+python -m denoiser --test restormer --device cpu --show-architecture
+```
+
 ### Comparison Mode
 
 ```bash
 python -m denoiser --synthetic --compare bm3d nl-means resunet nafnet \
-    --max-images 1 --sample-seed 42 \
-    --output results/comparison --plot
+    --max-images 1 --sample-seed 42
 ```
+
+This writes to a canonical comparison folder (algorithm order does not matter), for example:
+
+`results/compare/bm3d_vs_nafnet_vs_nl-means_vs_resunet/synthetic/`
 
 ### Sigma Range Mode
 
@@ -113,7 +124,7 @@ python -m denoiser --synthetic --compare bm3d nl-means resunet nafnet \
 python -m denoiser --synthetic --compare bm3d nl-means resunet nafnet \
     --max-images 1 --sample-seed 42 \
     --sigma-range 0.05,0.2,0.05 \
-    --output results/sigma_range_compare --plot
+    --output results/sigma_range_compare
 ```
 
 ## CLI Flags Reference
@@ -126,7 +137,7 @@ python -m denoiser --synthetic --compare bm3d nl-means resunet nafnet \
 
 ### Algorithm Selection
 
-- `algorithm(s)` - One or more: `bm3d`, `nl-means`, `nlmeans`, `nafnet`, `resunet`, `res-unet`, `residual-unet`
+- `algorithm(s)` - One or more: `bm3d`, `nl-means`, `nlmeans`, `nafnet`, `resunet`, `res-unet`, `residual-unet`, `restormer`, `restorer`
 
 ### Dataset Configuration
 
@@ -139,14 +150,13 @@ python -m denoiser --synthetic --compare bm3d nl-means resunet nafnet \
 
 - `--patch-size INT` - Patch size for NL-Means
 - `--patch-distance INT` - Patch search distance for NL-Means
-- `--base-channels INT` - Base channels for ResUNet and NAFNet
-- `--device STR` - Runtime device for ResUNet and NAFNet (`auto`, `cpu`, `cuda`)
-- `--show-architecture` - Print loaded ResUNet/NAFNet architecture in terminal during inference
+- `--base-channels INT` - Base channels for ResUNet, NAFNet, and Restormer
+- `--device STR` - Runtime device for ResUNet, NAFNet, and Restormer (`auto`, `cpu`, `cuda`)
+- `--show-architecture` - Print loaded ResUNet/NAFNet/Restormer architecture in terminal during inference
 
 ### Output Options
 
-- `--output DIR` - Save comparison and sigma-range results
-- `--plot` - Generate performance plots
+- `--output DIR` - Optional base directory for comparison and sigma-range results. For comparison mode, outputs are written under `<output>/<algorithm-combination>/<dataset-type>/`. Without `--output`, default base is `<project-root>/results/compare`.
 - `--show-plot` - Display plots interactively
 - `--show-images` - Display noisy vs denoised images
 - `--num-display INT` - Number of images to display with `--show-images`
@@ -187,13 +197,47 @@ Notes:
 ## Output Files
 
 Single-algorithm runs write to `results/single/<algorithm>/<dataset-type>/`.
-Comparison runs write to `results/comparison/` or the directory passed to `--output`.
+Comparison runs write to:
+
+`results/compare/<algorithm-combination>/<dataset-type>/`
+
+or (if `--output DIR` is passed):
+
+`<output>/<algorithm-combination>/<dataset-type>/`
+
+`<algorithm-combination>` is canonical and order-insensitive (algorithms are normalized and sorted), e.g.:
+
+`bm3d_vs_nlmeans`
+
+Each comparison dataset folder contains:
+
+- `images/`
+- `metrics/`
+- `plots/`
 
 Typical generated files include:
 
 - `metrics/*.csv`
 - `plots/*.png`
-- `images/*_denoised*.png`
+
+Comparison-mode outputs always include:
+
+- `metrics/comparison_summary.csv`
+- `plots/comparison_<algorithm1>_vs_<algorithm2>_....png`
+
+Sigma-range comparison outputs include:
+
+- `metrics/sigma_range_summary.csv`
+- `plots/psnr_vs_sigma_range.png`
+- `plots/ssim_vs_sigma_range.png`
+
+Single-algorithm image outputs:
+
+- For `test` and `synthetic` datasets:
+    - `images/noisy/*_noisy*.png`
+    - `images/denoised/*_denoised*.png`
+- For `real-world` datasets:
+    - `images/*_denoised*.png`
 
 ## Project Structure
 
@@ -212,7 +256,8 @@ Low-light-Denoising/
 │       │   ├── bm3d_denoiser.py
 │       │   ├── nl_means_denoiser.py
 │       │   ├── resunet_denoiser.py
-│       │   └── nafnet_denoiser.py
+│       │   ├── nafnet_denoiser.py
+│       │   └── restormer_denoiser.py
 │       ├── datasets/
 │       └── utils/
 ├── data/
