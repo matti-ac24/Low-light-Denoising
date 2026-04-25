@@ -226,7 +226,14 @@ class Evaluator:
             plt.close()
     
     # Save evaluation results and optionally images to disk.
-    def save_results(self, output_dir: Union[str, Path], save_images: bool = True, sigma: float | None = None) -> None:
+    def save_results(
+        self,
+        output_dir: Union[str, Path],
+        save_images: bool = True,
+        sigma: float | None = None,
+        save_noisy_images: bool = False,
+        split_image_dirs: bool = False,
+    ) -> None:
 
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -263,22 +270,35 @@ class Evaluator:
         if self.verbose:
             print(f"Metrics saved to: {csv_path}")
         
-        # Save denoised images
+        # Save output images
         if save_images:
             try:
                 from skimage import io
                 
                 images_dir = output_dir / 'images'
                 images_dir.mkdir(exist_ok=True)
+
+                denoised_dir = images_dir / 'denoised' if split_image_dirs else images_dir
+                noisy_dir = images_dir / 'noisy' if split_image_dirs else images_dir
+                denoised_dir.mkdir(exist_ok=True)
+                if save_noisy_images:
+                    noisy_dir.mkdir(exist_ok=True)
                 
                 for result in self.results:
-                    img_path = images_dir / f"{result['name']}_denoised{sigma_suffix}.png"
+                    img_path = denoised_dir / f"{result['name']}_denoised{sigma_suffix}.png"
                     # Convert to uint8 for saving
-                    img_uint8 = (result['denoised'] * 255).astype(np.uint8)
+                    img_uint8 = (np.clip(result['denoised'], 0, 1) * 255).astype(np.uint8)
                     io.imsave(img_path, img_uint8)
+
+                    if save_noisy_images:
+                        noisy_path = noisy_dir / f"{result['name']}_noisy{sigma_suffix}.png"
+                        noisy_uint8 = (np.clip(result['noisy'], 0, 1) * 255).astype(np.uint8)
+                        io.imsave(noisy_path, noisy_uint8)
                 
                 if self.verbose:
-                    print(f"Images saved to: {images_dir}")
+                    print(f"Denoised images saved to: {denoised_dir}")
+                    if save_noisy_images:
+                        print(f"Noisy images saved to: {noisy_dir}")
             except Exception as e:
                 print(f"Warning: Could not save images: {e}")
     

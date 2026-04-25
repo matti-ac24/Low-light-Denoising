@@ -571,7 +571,14 @@ def main() -> int:
             if args.output and args.verbose:
                 print(f"Note: --output is ignored in single mode. Using: {output_dir}")
 
-            evaluator.save_results(output_dir, save_images=True, sigma=args.sigma)
+            save_noisy_images = dataset_type in ['test', 'synthetic']
+            evaluator.save_results(
+                output_dir,
+                save_images=True,
+                sigma=args.sigma,
+                save_noisy_images=save_noisy_images,
+                split_image_dirs=save_noisy_images,
+            )
             evaluator.plot_results(output_dir, show_plot=args.show_plot, sigma=args.sigma)
             print(f"\nResults saved to: {output_dir}")
         
