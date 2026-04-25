@@ -11,6 +11,7 @@ from .evaluator import Evaluator, ComparisonEvaluator
 
 DEFAULT_SYNTHETIC_DATASET_REL_PATH = Path('data/benchmark/clean/test')
 DEFAULT_REAL_WORLD_DATASET_REL_PATH = Path('data/demo_pair')
+DEFAULT_COMPARISON_OUTPUT_REL_PATH = Path('results/compare')
 
 
 def format_sigma_for_path(sigma: float) -> str:
@@ -246,7 +247,7 @@ Examples:
         python -m denoiser --test nafnet --device cpu
   
   # Compare algorithms side-by-side
-    python -m denoiser --test --compare bm3d nl-means --output results/comparison --plot
+        python -m denoiser --test --compare bm3d nl-means --output results/compare
   
   # Run BM3D on real-world paired images
     python -m denoiser --real-world bm3d
@@ -358,13 +359,7 @@ Examples:
         '--output',
         type=str,
         default=None,
-        help='Output directory for comparison and sigma-range results (ignored in single mode)'
-    )
-    
-    parser.add_argument(
-        '--plot',
-        action='store_true',
-        help='Generate and save comparison plots (single mode always saves plots)'
+        help='Output directory for comparison and sigma-range results (ignored in single mode; comparison default: <project root>/results/compare)'
     )
     
     parser.add_argument(
@@ -468,7 +463,7 @@ def main() -> int:
                 raise ValueError("--sigma-range can only be used with --synthetic")
 
             if is_comparison:
-                output_dir = Path(args.output) if args.output else Path('results/comparison')
+                output_dir = Path(args.output) if args.output else project_root / DEFAULT_COMPARISON_OUTPUT_REL_PATH
             else:
                 algorithm_name = algorithms_list[0]
                 algorithm_class = get_algorithm(algorithm_name)
@@ -518,26 +513,16 @@ def main() -> int:
             )
             
             # Run comparison evaluation
-            all_results = comparison_evaluator.evaluate_all()
+            comparison_evaluator.evaluate_all()
             
             # Show image comparisons if requested
             if args.show_images:
                 comparison_evaluator.show_image_comparison(num_images=args.num_display)
-            
-            # Save and plot results if output directory specified
-            if args.output:
-                output_dir = Path(args.output)
-                comparison_evaluator.save_comparison_summary(output_dir)
-                print(f"\nComparison results saved to: {output_dir}")
-                
-                # Generate comparison plots if requested
-                if args.plot:
-                    comparison_evaluator.plot_comparison(output_dir, show_plot=args.show_plot)
-            elif args.plot:
-                # If --plot is specified without --output, create a default output directory
-                output_dir = Path('results/comparison')
-                comparison_evaluator.plot_comparison(output_dir, show_plot=args.show_plot)
-                print(f"\nComparison results saved to: {output_dir}")
+
+            output_dir = Path(args.output) if args.output else project_root / DEFAULT_COMPARISON_OUTPUT_REL_PATH
+            comparison_evaluator.save_comparison_summary(output_dir)
+            comparison_evaluator.plot_comparison(output_dir, show_plot=args.show_plot)
+            print(f"\nComparison results saved to: {output_dir}")
         
         else:
             # Single algorithm mode
@@ -554,7 +539,7 @@ def main() -> int:
             )
             
             # Run evaluation
-            results = evaluator.evaluate()
+            evaluator.evaluate()
             
             # Show image comparisons if requested
             if args.show_images:
