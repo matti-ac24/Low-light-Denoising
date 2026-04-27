@@ -565,7 +565,11 @@ def main() -> int:
                 display_names,
             )
             comparison_evaluator.save_comparison_summary(output_dir)
-            comparison_evaluator.plot_comparison(output_dir, show_plot=args.show_plot)
+            comparison_evaluator.plot_comparison_from_csv(
+                output_dir / 'metrics' / 'comparison_summary.csv',
+                output_dir,
+                show_plot=args.show_plot,
+            )
             print(f"\nComparison results saved to: {output_dir}")
         
         else:

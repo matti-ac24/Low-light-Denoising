@@ -412,57 +412,105 @@ class ComparisonEvaluator:
             self.all_results[algorithm.name] = results
         
         return self.all_results
-    
-    # Generate comparison plots for all algorithms
-    def plot_comparison(self, output_dir: Union[str, Path], show_plot: bool = False) -> None:
 
-        if not self.all_results:
-            print("Warning: No results to plot!")
-            return
-        
+    @staticmethod
+    def _load_comparison_summary_csv(csv_path: Union[str, Path]) -> dict[str, Any]:
+        import csv
+
+        csv_path = Path(csv_path)
+        if not csv_path.exists():
+            raise FileNotFoundError(f"Comparison summary CSV not found: {csv_path}")
+
+        with open(csv_path, newline='') as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+
+        if not rows:
+            raise ValueError(f"Comparison summary CSV is empty: {csv_path}")
+
+        fieldnames = reader.fieldnames or []
+        algorithm_names: list[str] = []
+        for field in fieldnames:
+            if field in {'image', 'noisy_psnr', 'noisy_mse', 'noisy_ssim'}:
+                continue
+            if field.endswith('_psnr'):
+                algorithm_names.append(field[:-5])
+
+        image_names = [row['image'] for row in rows]
+
+        metrics_data: dict[str, dict[str, list[float]]] = {}
+        for algo_name in algorithm_names:
+            metrics_data[algo_name] = {
+                'psnr': [],
+                'mse': [],
+                'ssim': [],
+            }
+
+        noisy_metrics = {
+            'psnr': [],
+            'mse': [],
+            'ssim': [],
+        }
+
+        for row in rows:
+            if 'noisy_psnr' in row and row['noisy_psnr'] not in (None, ''):
+                noisy_metrics['psnr'].append(float(row['noisy_psnr']))
+                noisy_metrics['mse'].append(float(row['noisy_mse']))
+                noisy_metrics['ssim'].append(float(row['noisy_ssim']))
+            else:
+                noisy_metrics['psnr'].append(float('nan'))
+                noisy_metrics['mse'].append(float('nan'))
+                noisy_metrics['ssim'].append(float('nan'))
+
+            for algo_name in algorithm_names:
+                metrics_data[algo_name]['psnr'].append(float(row[f'{algo_name}_psnr']))
+                metrics_data[algo_name]['mse'].append(float(row[f'{algo_name}_mse']))
+                metrics_data[algo_name]['ssim'].append(float(row[f'{algo_name}_ssim']))
+
+        return {
+            'image_names': image_names,
+            'algorithm_names': algorithm_names,
+            'metrics_data': metrics_data,
+            'noisy_metrics': noisy_metrics,
+        }
+
+    def _plot_comparison_from_data(
+        self,
+        image_names: list[str],
+        algorithm_names: list[str],
+        metrics_data: dict[str, dict[str, list[float]]],
+        noisy_metrics: dict[str, list[float]],
+        output_dir: Union[str, Path],
+        show_plot: bool = False,
+    ) -> None:
+
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         plots_dir = output_dir / 'plots'
         plots_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Get image names from the first algorithm's results
-        first_algo = list(self.all_results.keys())[0]
-        image_names = [r['name'] for r in self.all_results[first_algo]]
-        num_images = len(image_names)
-        
-        # Create figure with subplots for each metric
+
         n_metrics = 3
-        _ , axes = plt.subplots(1, n_metrics, figsize=(7*n_metrics, 6))
-        
-        # Prepare data for each algorithm
-        x = np.arange(num_images)
-        width = 0.8 / (len(self.algorithms) + 1)  # +1 for noisy baseline
-        colors = plt.cm.Set2(np.linspace(0, 1, len(self.algorithms) + 1))
-        
-        # Extract metrics for all algorithms
-        metrics_data = {}
-        for algo_name, results in self.all_results.items():
-            metrics_data[algo_name] = {
-                'psnr': [r['denoised_metrics']['psnr'] for r in results],
-                'mse': [r['denoised_metrics']['mse'] for r in results],
-                'ssim': [r['denoised_metrics']['ssim'] for r in results]
-            }
-        
-        # Get noisy baseline from first algorithm
-        noisy_psnr = [r['noisy_metrics']['psnr'] for r in self.all_results[first_algo]]
-        noisy_mse = [r['noisy_metrics']['mse'] for r in self.all_results[first_algo]]
-        noisy_ssim = [r['noisy_metrics']['ssim'] for r in self.all_results[first_algo]]
-        
+        _, axes = plt.subplots(1, n_metrics, figsize=(7 * n_metrics, 6))
+
+        x = np.arange(len(image_names))
+        width = 0.8 / (len(algorithm_names) + 1)  # +1 for noisy baseline
+        colors = plt.cm.Set2(np.linspace(0, 1, len(algorithm_names) + 1))
+
+        noisy_psnr = noisy_metrics['psnr']
+        noisy_mse = noisy_metrics['mse']
+        noisy_ssim = noisy_metrics['ssim']
+
         # Plot PSNR comparison
         ax = axes[0]
-        offset = -(len(self.algorithms)) * width / 2
+        offset = -(len(algorithm_names)) * width / 2
         ax.bar(x + offset, noisy_psnr, width, label='Noisy', alpha=0.7, color=colors[0])
         offset += width
-        
-        for idx, (algo_name, data) in enumerate(metrics_data.items()):
+
+        for idx, algo_name in enumerate(algorithm_names):
+            data = metrics_data[algo_name]
             ax.bar(x + offset, data['psnr'], width, label=algo_name, alpha=0.8, color=colors[idx + 1])
             offset += width
-        
+
         ax.set_xlabel('Image', fontsize=12)
         ax.set_ylabel('PSNR (dB)', fontsize=12)
         ax.set_title('PSNR Comparison Across Algorithms', fontsize=13, fontweight='bold')
@@ -470,17 +518,18 @@ class ComparisonEvaluator:
         ax.set_xticklabels(image_names, rotation=45, ha='right')
         ax.legend()
         ax.grid(axis='y', alpha=0.3)
-        
+
         # Plot MSE comparison
         ax = axes[1]
-        offset = -(len(self.algorithms)) * width / 2
+        offset = -(len(algorithm_names)) * width / 2
         ax.bar(x + offset, noisy_mse, width, label='Noisy', alpha=0.7, color=colors[0])
         offset += width
-        
-        for idx, (algo_name, data) in enumerate(metrics_data.items()):
+
+        for idx, algo_name in enumerate(algorithm_names):
+            data = metrics_data[algo_name]
             ax.bar(x + offset, data['mse'], width, label=algo_name, alpha=0.8, color=colors[idx + 1])
             offset += width
-        
+
         ax.set_xlabel('Image', fontsize=12)
         ax.set_ylabel('MSE', fontsize=12)
         ax.set_title('MSE Comparison Across Algorithms', fontsize=13, fontweight='bold')
@@ -488,17 +537,18 @@ class ComparisonEvaluator:
         ax.set_xticklabels(image_names, rotation=45, ha='right')
         ax.legend()
         ax.grid(axis='y', alpha=0.3)
-        
+
         # Plot SSIM comparison
         ax = axes[2]
-        offset = -(len(self.algorithms)) * width / 2
+        offset = -(len(algorithm_names)) * width / 2
         ax.bar(x + offset, noisy_ssim, width, label='Noisy', alpha=0.7, color=colors[0])
         offset += width
-        
-        for idx, (algo_name, data) in enumerate(metrics_data.items()):
+
+        for idx, algo_name in enumerate(algorithm_names):
+            data = metrics_data[algo_name]
             ax.bar(x + offset, data['ssim'], width, label=algo_name, alpha=0.8, color=colors[idx + 1])
             offset += width
-        
+
         ax.set_xlabel('Image', fontsize=12)
         ax.set_ylabel('SSIM', fontsize=12)
         ax.set_title('SSIM Comparison Across Algorithms', fontsize=13, fontweight='bold')
@@ -507,21 +557,70 @@ class ComparisonEvaluator:
         ax.legend()
         ax.grid(axis='y', alpha=0.3)
         ax.set_ylim([0, 1])
-            
+
         plt.tight_layout()
-        
-        # Save plot
-        algo_names = '_vs_'.join([a.name.replace(' ', '_').lower() for a in self.algorithms])
+
+        algo_names = '_vs_'.join([name.replace(' ', '_').lower() for name in algorithm_names])
         plot_path = plots_dir / f'comparison_{algo_names}.png'
         plt.savefig(plot_path, dpi=150, bbox_inches='tight')
-        
+
         if self.verbose:
             print(f"\nComparison plot saved to: {plot_path}")
-        
+
         if show_plot:
             plt.show()
         else:
             plt.close()
+    
+    # Generate comparison plots for all algorithms
+    def plot_comparison(self, output_dir: Union[str, Path], show_plot: bool = False) -> None:
+
+        if not self.all_results:
+            print("Warning: No results to plot!")
+            return
+        first_algo = list(self.all_results.keys())[0]
+        image_names = [r['name'] for r in self.all_results[first_algo]]
+        algorithm_names = list(self.all_results.keys())
+
+        metrics_data: dict[str, dict[str, list[float]]] = {}
+        for algo_name, results in self.all_results.items():
+            metrics_data[algo_name] = {
+                'psnr': [r['denoised_metrics']['psnr'] for r in results],
+                'mse': [r['denoised_metrics']['mse'] for r in results],
+                'ssim': [r['denoised_metrics']['ssim'] for r in results],
+            }
+
+        noisy_metrics = {
+            'psnr': [r['noisy_metrics']['psnr'] for r in self.all_results[first_algo]],
+            'mse': [r['noisy_metrics']['mse'] for r in self.all_results[first_algo]],
+            'ssim': [r['noisy_metrics']['ssim'] for r in self.all_results[first_algo]],
+        }
+
+        self._plot_comparison_from_data(
+            image_names=image_names,
+            algorithm_names=algorithm_names,
+            metrics_data=metrics_data,
+            noisy_metrics=noisy_metrics,
+            output_dir=output_dir,
+            show_plot=show_plot,
+        )
+
+    def plot_comparison_from_csv(
+        self,
+        summary_csv_path: Union[str, Path],
+        output_dir: Union[str, Path],
+        show_plot: bool = False,
+    ) -> None:
+
+        data = self._load_comparison_summary_csv(summary_csv_path)
+        self._plot_comparison_from_data(
+            image_names=data['image_names'],
+            algorithm_names=data['algorithm_names'],
+            metrics_data=data['metrics_data'],
+            noisy_metrics=data['noisy_metrics'],
+            output_dir=output_dir,
+            show_plot=show_plot,
+        )
     
     # Save a comparison summary CSV with all algorithms' metrics
     def save_comparison_summary(self, output_dir: Union[str, Path]) -> None:
@@ -545,7 +644,7 @@ class ComparisonEvaluator:
         
         with open(csv_path, 'w', newline='') as f:
             # Build fieldnames
-            fieldnames = ['image']
+            fieldnames = ['image', 'noisy_psnr', 'noisy_mse', 'noisy_ssim']
             for algo_name in self.all_results.keys():
                 fieldnames.extend([
                     f'{algo_name}_psnr',
@@ -558,7 +657,12 @@ class ComparisonEvaluator:
             
             # Write data for each image
             for idx, img_name in enumerate(image_names):
-                row = {'image': img_name}
+                row = {
+                    'image': img_name,
+                    'noisy_psnr': self.all_results[first_algo][idx]['noisy_metrics']['psnr'],
+                    'noisy_mse': self.all_results[first_algo][idx]['noisy_metrics']['mse'],
+                    'noisy_ssim': self.all_results[first_algo][idx]['noisy_metrics']['ssim'],
+                }
                 
                 for algo_name, results in self.all_results.items():
                     result = results[idx]
