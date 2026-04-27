@@ -19,11 +19,18 @@ class Evaluator:
         return f"_sigma_{formatted}"
     
     # Initialise the evaluator with algorithm, dataset loader, and verbosity settings
-    def __init__(self, algorithm: Any, dataset_loader: Any, verbose: bool = True) -> None:
+    def __init__(
+        self,
+        algorithm: Any,
+        dataset_loader: Any,
+        verbose: bool = True,
+        show_progress: bool = False,
+    ) -> None:
 
         self.algorithm = algorithm
         self.dataset_loader = dataset_loader
         self.verbose = verbose
+        self.show_progress = show_progress
         self.results = []
     
     # Run evaluation on the dataset and return its results
@@ -54,8 +61,30 @@ class Evaluator:
         
         # Process each image
         self.results = []
-        
-        for idx, image_data in enumerate(images, 1):
+
+        use_progress_bar = (
+            self.show_progress
+            and not self.verbose
+            and self.dataset_loader.dataset_type in ['synthetic', 'real-world']
+            and getattr(self.dataset_loader, 'max_images', None) is None
+        )
+
+        iterable = enumerate(images, 1)
+        if use_progress_bar:
+            try:
+                from tqdm.auto import tqdm
+
+                iterable = tqdm(
+                    iterable,
+                    total=len(images),
+                    desc=f"{self.algorithm.name}",
+                    unit='img',
+                )
+            except Exception:
+                # Fall back to regular iteration if tqdm is unavailable.
+                iterable = enumerate(images, 1)
+
+        for idx, image_data in iterable:
             if self.verbose:
                 print(f"[{idx}/{len(images)}] Processing: {image_data['name']}")
             

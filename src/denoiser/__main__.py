@@ -178,6 +178,11 @@ def run_sigma_range(
                 algorithm=algorithm,
                 dataset_loader=dataset_loader,
                 verbose=args.verbose,
+                show_progress=(
+                    not args.verbose
+                    and dataset_type in ['synthetic', 'real-world']
+                    and max_images is None
+                ),
             )
             results = evaluator.evaluate()
 
@@ -574,7 +579,12 @@ def main() -> int:
             evaluator = Evaluator(
                 algorithm=algorithm,
                 dataset_loader=dataset_loader,
-                verbose=args.verbose
+                verbose=args.verbose,
+                show_progress=(
+                    not args.verbose
+                    and dataset_type in ['synthetic', 'real-world']
+                    and max_images is None
+                ),
             )
             
             # Run evaluation
