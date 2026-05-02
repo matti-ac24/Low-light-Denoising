@@ -133,13 +133,11 @@ class Evaluator:
         
         # Noisy image metrics
         noisy_metrics = result['noisy_metrics']
-        print(f"  Noisy image:     PSNR={noisy_metrics['psnr']:.2f} dB, MSE={noisy_metrics['mse']:.6f}", end='')
-        print(f", SSIM={noisy_metrics['ssim']:.4f}")
+        print(f"  Noisy image:     PSNR={noisy_metrics['psnr']:.2f} dB, SSIM={noisy_metrics['ssim']:.4f}")
         
         # Denoised image metrics
         denoised_metrics = result['denoised_metrics']
-        print(f"  Denoised image:  PSNR={denoised_metrics['psnr']:.2f} dB, MSE={denoised_metrics['mse']:.6f}", end='')
-        print(f", SSIM={denoised_metrics['ssim']:.4f}")
+        print(f"  Denoised image:  PSNR={denoised_metrics['psnr']:.2f} dB, SSIM={denoised_metrics['ssim']:.4f}")
         
         # Improvement
         psnr_improvement = denoised_metrics['psnr'] - noisy_metrics['psnr']
@@ -190,13 +188,11 @@ class Evaluator:
         image_names = [r['name'] for r in self.results]
         noisy_psnr = [r['noisy_metrics']['psnr'] for r in self.results]
         denoised_psnr = [r['denoised_metrics']['psnr'] for r in self.results]
-        noisy_mse = [r['noisy_metrics']['mse'] for r in self.results]
-        denoised_mse = [r['denoised_metrics']['mse'] for r in self.results]
         noisy_ssim = [r['noisy_metrics']['ssim'] for r in self.results]
         denoised_ssim = [r['denoised_metrics']['ssim'] for r in self.results]
         
         # Create figure with subplots
-        n_plots = 3
+        n_plots = 2
         _ , axes = plt.subplots(1, n_plots, figsize=(6*n_plots, 5))
         
         x = np.arange(len(image_names))
@@ -214,20 +210,8 @@ class Evaluator:
         ax.legend()
         ax.grid(axis='y', alpha=0.3)
         
-        # Plot MSE
-        ax = axes[1]
-        ax.bar(x - width/2, noisy_mse, width, label='Noisy', alpha=0.8, color='#e74c3c')
-        ax.bar(x + width/2, denoised_mse, width, label='Denoised', alpha=0.8, color='#2ecc71')
-        ax.set_xlabel('Image', fontsize=11)
-        ax.set_ylabel('MSE', fontsize=11)
-        ax.set_title(f'MSE Comparison - {self.algorithm.name}', fontsize=12, fontweight='bold')
-        ax.set_xticks(x)
-        ax.set_xticklabels(image_names, rotation=45, ha='right')
-        ax.legend()
-        ax.grid(axis='y', alpha=0.3)
-        
         # Plot SSIM
-        ax = axes[2]
+        ax = axes[1]
         ax.bar(x - width/2, noisy_ssim, width, label='Noisy', alpha=0.8, color='#e74c3c')
         ax.bar(x + width/2, denoised_ssim, width, label='Denoised', alpha=0.8, color='#2ecc71')
         ax.set_xlabel('Image', fontsize=11)
@@ -276,7 +260,7 @@ class Evaluator:
         csv_path = metrics_dir / f'metrics{sigma_suffix}.csv'
         with open(csv_path, 'w', newline='') as f:
             fieldnames = ['image', 'processing_time', 'noisy_psnr', 'denoised_psnr', 
-                         'psnr_improvement', 'noisy_mse', 'denoised_mse', 'noisy_ssim', 'denoised_ssim']
+                         'psnr_improvement', 'noisy_ssim', 'denoised_ssim']
             
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
@@ -288,8 +272,6 @@ class Evaluator:
                     'noisy_psnr': result['noisy_metrics']['psnr'],
                     'denoised_psnr': result['denoised_metrics']['psnr'],
                     'psnr_improvement': result['denoised_metrics']['psnr'] - result['noisy_metrics']['psnr'],
-                    'noisy_mse': result['noisy_metrics']['mse'],
-                    'denoised_mse': result['denoised_metrics']['mse'],
                     'noisy_ssim': result['noisy_metrics']['ssim'],
                     'denoised_ssim': result['denoised_metrics']['ssim']
                 }                
@@ -431,7 +413,7 @@ class ComparisonEvaluator:
         fieldnames = reader.fieldnames or []
         algorithm_names: list[str] = []
         for field in fieldnames:
-            if field in {'image', 'noisy_psnr', 'noisy_mse', 'noisy_ssim'}:
+            if field in {'image', 'noisy_psnr', 'noisy_ssim'}:
                 continue
             if field.endswith('_psnr'):
                 algorithm_names.append(field[:-5])
@@ -442,29 +424,24 @@ class ComparisonEvaluator:
         for algo_name in algorithm_names:
             metrics_data[algo_name] = {
                 'psnr': [],
-                'mse': [],
                 'ssim': [],
             }
 
         noisy_metrics = {
             'psnr': [],
-            'mse': [],
             'ssim': [],
         }
 
         for row in rows:
             if 'noisy_psnr' in row and row['noisy_psnr'] not in (None, ''):
                 noisy_metrics['psnr'].append(float(row['noisy_psnr']))
-                noisy_metrics['mse'].append(float(row['noisy_mse']))
                 noisy_metrics['ssim'].append(float(row['noisy_ssim']))
             else:
                 noisy_metrics['psnr'].append(float('nan'))
-                noisy_metrics['mse'].append(float('nan'))
                 noisy_metrics['ssim'].append(float('nan'))
 
             for algo_name in algorithm_names:
                 metrics_data[algo_name]['psnr'].append(float(row[f'{algo_name}_psnr']))
-                metrics_data[algo_name]['mse'].append(float(row[f'{algo_name}_mse']))
                 metrics_data[algo_name]['ssim'].append(float(row[f'{algo_name}_ssim']))
 
         return {
@@ -489,7 +466,7 @@ class ComparisonEvaluator:
         plots_dir = output_dir / 'plots'
         plots_dir.mkdir(parents=True, exist_ok=True)
 
-        n_metrics = 3
+        n_metrics = 2
         _, axes = plt.subplots(1, n_metrics, figsize=(7 * n_metrics, 6))
 
         x = np.arange(len(image_names))
@@ -497,7 +474,6 @@ class ComparisonEvaluator:
         colors = plt.cm.Set2(np.linspace(0, 1, len(algorithm_names) + 1))
 
         noisy_psnr = noisy_metrics['psnr']
-        noisy_mse = noisy_metrics['mse']
         noisy_ssim = noisy_metrics['ssim']
 
         # Plot PSNR comparison
@@ -519,27 +495,8 @@ class ComparisonEvaluator:
         ax.legend()
         ax.grid(axis='y', alpha=0.3)
 
-        # Plot MSE comparison
-        ax = axes[1]
-        offset = -(len(algorithm_names)) * width / 2
-        ax.bar(x + offset, noisy_mse, width, label='Noisy', alpha=0.7, color=colors[0])
-        offset += width
-
-        for idx, algo_name in enumerate(algorithm_names):
-            data = metrics_data[algo_name]
-            ax.bar(x + offset, data['mse'], width, label=algo_name, alpha=0.8, color=colors[idx + 1])
-            offset += width
-
-        ax.set_xlabel('Image', fontsize=12)
-        ax.set_ylabel('MSE', fontsize=12)
-        ax.set_title('MSE Comparison Across Algorithms', fontsize=13, fontweight='bold')
-        ax.set_xticks(x)
-        ax.set_xticklabels(image_names, rotation=45, ha='right')
-        ax.legend()
-        ax.grid(axis='y', alpha=0.3)
-
         # Plot SSIM comparison
-        ax = axes[2]
+        ax = axes[1]
         offset = -(len(algorithm_names)) * width / 2
         ax.bar(x + offset, noisy_ssim, width, label='Noisy', alpha=0.7, color=colors[0])
         offset += width
@@ -586,13 +543,11 @@ class ComparisonEvaluator:
         for algo_name, results in self.all_results.items():
             metrics_data[algo_name] = {
                 'psnr': [r['denoised_metrics']['psnr'] for r in results],
-                'mse': [r['denoised_metrics']['mse'] for r in results],
                 'ssim': [r['denoised_metrics']['ssim'] for r in results],
             }
 
         noisy_metrics = {
             'psnr': [r['noisy_metrics']['psnr'] for r in self.all_results[first_algo]],
-            'mse': [r['noisy_metrics']['mse'] for r in self.all_results[first_algo]],
             'ssim': [r['noisy_metrics']['ssim'] for r in self.all_results[first_algo]],
         }
 
@@ -644,11 +599,10 @@ class ComparisonEvaluator:
         
         with open(csv_path, 'w', newline='') as f:
             # Build fieldnames
-            fieldnames = ['image', 'noisy_psnr', 'noisy_mse', 'noisy_ssim']
+            fieldnames = ['image', 'noisy_psnr', 'noisy_ssim']
             for algo_name in self.all_results.keys():
                 fieldnames.extend([
                     f'{algo_name}_psnr',
-                    f'{algo_name}_mse',
                     f'{algo_name}_ssim'
                 ])
             
@@ -660,14 +614,12 @@ class ComparisonEvaluator:
                 row = {
                     'image': img_name,
                     'noisy_psnr': self.all_results[first_algo][idx]['noisy_metrics']['psnr'],
-                    'noisy_mse': self.all_results[first_algo][idx]['noisy_metrics']['mse'],
                     'noisy_ssim': self.all_results[first_algo][idx]['noisy_metrics']['ssim'],
                 }
                 
                 for algo_name, results in self.all_results.items():
                     result = results[idx]
                     row[f'{algo_name}_psnr'] = result['denoised_metrics']['psnr']
-                    row[f'{algo_name}_mse'] = result['denoised_metrics']['mse']
                     row[f'{algo_name}_ssim'] = result['denoised_metrics']['ssim']         
                 
                 writer.writerow(row)

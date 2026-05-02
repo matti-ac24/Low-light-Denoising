@@ -2,6 +2,8 @@
 
 import sys
 import argparse
+import csv
+import shutil
 from pathlib import Path
 
 from .algorithms import get_algorithm, ALGORITHMS
@@ -23,6 +25,196 @@ def format_sigma_for_path(sigma: float) -> str:
 def format_algorithm_for_path(name: str) -> str:
 
     return name.strip().lower().replace(' ', '-').replace('_', '-')
+
+
+def format_sigma_suffix_for_metrics(sigma: float | None) -> str:
+
+    if sigma is None:
+        return ''
+    formatted = f"{sigma:.4f}".rstrip('0').rstrip('.').replace('.', 'p')
+    return f"_sigma_{formatted}"
+
+
+def get_single_output_dir(project_root: Path, algorithm_display_name: str, dataset_type: str) -> Path:
+
+    return (
+        project_root
+        / 'results'
+        / 'single'
+        / format_algorithm_for_path(algorithm_display_name)
+        / dataset_type
+    )
+
+
+def get_single_metrics_csv_path(
+    project_root: Path,
+    algorithm_display_name: str,
+    dataset_type: str,
+    sigma: float | None,
+) -> Path:
+
+    output_dir = get_single_output_dir(project_root, algorithm_display_name, dataset_type)
+    sigma_suffix = format_sigma_suffix_for_metrics(sigma)
+    return output_dir / 'metrics' / f'metrics{sigma_suffix}.csv'
+
+
+def load_cached_single_results(metrics_csv_path: Path, image_names: list[str]) -> list[dict] | None:
+
+    import csv
+
+    if not metrics_csv_path.exists():
+        return None
+
+    with open(metrics_csv_path, newline='') as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+
+    rows_by_image = {row['image']: row for row in rows if 'image' in row}
+    if any(name not in rows_by_image for name in image_names):
+        return None
+
+    cached_results: list[dict] = []
+    for image_name in image_names:
+        row = rows_by_image[image_name]
+        cached_results.append(
+            {
+                'name': image_name,
+                'processing_time': float(row.get('processing_time', 0.0)),
+                'noisy_metrics': {
+                    'psnr': float(row['noisy_psnr']),
+                    'ssim': float(row['noisy_ssim']),
+                },
+                'denoised_metrics': {
+                    'psnr': float(row['denoised_psnr']),
+                    'ssim': float(row['denoised_ssim']),
+                },
+            }
+        )
+
+    return cached_results
+
+
+def write_results_metrics_csv(results: list[dict], metrics_csv_path: Path) -> None:
+
+    metrics_csv_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(metrics_csv_path, 'w', newline='') as f:
+        fieldnames = [
+            'image',
+            'processing_time',
+            'noisy_psnr',
+            'denoised_psnr',
+            'psnr_improvement',
+            'noisy_ssim',
+            'denoised_ssim',
+        ]
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+
+        for result in results:
+            writer.writerow(
+                {
+                    'image': result['name'],
+                    'processing_time': result['processing_time'],
+                    'noisy_psnr': result['noisy_metrics']['psnr'],
+                    'denoised_psnr': result['denoised_metrics']['psnr'],
+                    'psnr_improvement': result['denoised_metrics']['psnr'] - result['noisy_metrics']['psnr'],
+                    'noisy_ssim': result['noisy_metrics']['ssim'],
+                    'denoised_ssim': result['denoised_metrics']['ssim'],
+                }
+            )
+
+
+def mirror_single_results_to_comparison_dir(
+    single_output_dir: Path,
+    comparison_output_dir: Path | None,
+    results: list[dict],
+    sigma: float | None,
+) -> None:
+
+    if comparison_output_dir is None:
+        return
+
+    comparison_cache_dir = comparison_output_dir / 'cache'
+    comparison_cache_dir.mkdir(parents=True, exist_ok=True)
+
+    algorithm_name = single_output_dir.parent.name
+    dataset_type = single_output_dir.name
+    target_dir = comparison_cache_dir / algorithm_name / dataset_type
+    try:
+        shutil.copytree(single_output_dir, target_dir, dirs_exist_ok=True)
+    except Exception:
+        metrics_dir = target_dir / 'metrics'
+        metrics_dir.mkdir(parents=True, exist_ok=True)
+        sigma_suffix = format_sigma_suffix_for_metrics(sigma)
+        write_results_metrics_csv(results, metrics_dir / f'metrics{sigma_suffix}.csv')
+
+
+def evaluate_or_reuse_algorithm_results(
+    algorithm: object,
+    dataset_loader: object,
+    args: argparse.Namespace,
+    project_root: Path,
+    dataset_type: str,
+    sigma: float | None,
+    max_images: int | None,
+    comparison_output_dir: Path | None = None,
+) -> list[dict]:
+
+    images = dataset_loader.load_images()
+    image_names = [item['name'] for item in images]
+
+    metrics_csv_path = get_single_metrics_csv_path(
+        project_root,
+        algorithm.name,
+        dataset_type,
+        sigma,
+    )
+
+    if not args.show_images:
+        cached_results = load_cached_single_results(metrics_csv_path, image_names)
+        if cached_results is not None:
+            if args.verbose:
+                print(f"Reusing cached metrics for {algorithm.name} from: {metrics_csv_path}")
+            mirror_single_results_to_comparison_dir(
+                single_output_dir=get_single_output_dir(project_root, algorithm.name, dataset_type),
+                comparison_output_dir=comparison_output_dir,
+                results=cached_results,
+                sigma=sigma,
+            )
+            return cached_results
+
+    evaluator = Evaluator(
+        algorithm=algorithm,
+        dataset_loader=dataset_loader,
+        verbose=args.verbose,
+        show_progress=(
+            not args.verbose
+            and dataset_type in ['synthetic', 'real-world']
+            and max_images is None
+        ),
+    )
+    results = evaluator.evaluate()
+
+    single_output_dir = get_single_output_dir(project_root, algorithm.name, dataset_type)
+    save_noisy_images = dataset_type in ['test', 'synthetic']
+    evaluator.save_results(
+        single_output_dir,
+        save_images=True,
+        sigma=sigma,
+        save_noisy_images=save_noisy_images,
+        split_image_dirs=save_noisy_images,
+    )
+    mirror_single_results_to_comparison_dir(
+        single_output_dir=single_output_dir,
+        comparison_output_dir=comparison_output_dir,
+        results=results,
+        sigma=sigma,
+    )
+
+    if args.verbose:
+        print(f"Cached single-mode results for {algorithm.name} at: {single_output_dir}")
+
+    return results
 
 
 def build_comparison_folder_name(algorithm_names: list[str]) -> str:
@@ -89,6 +281,7 @@ def resolve_max_images(args: argparse.Namespace) -> int | None:
 
 def run_sigma_range(
     args: argparse.Namespace,
+    project_root: Path,
     dataset_type: str,
     dataset_path: str,
     algorithms_list: list[str],
@@ -152,12 +345,18 @@ def run_sigma_range(
                     algo_params['sigma_psd'] = sigma
                 algorithms.append(algorithm_class(**algo_params))
 
-            comparison_evaluator = ComparisonEvaluator(
-                algorithms=algorithms,
-                dataset_loader=dataset_loader,
-                verbose=args.verbose,
-            )
-            all_results = comparison_evaluator.evaluate_all()
+            all_results: dict[str, list[dict]] = {}
+            for algorithm in algorithms:
+                all_results[algorithm.name] = evaluate_or_reuse_algorithm_results(
+                    algorithm=algorithm,
+                    dataset_loader=dataset_loader,
+                    args=args,
+                    project_root=project_root,
+                    dataset_type=dataset_type,
+                    sigma=sigma,
+                    max_images=max_images,
+                    comparison_output_dir=output_dir,
+                )
 
             for algo_display_name, results in all_results.items():
                 denoised_psnr = [r['denoised_metrics']['psnr'] for r in results]
@@ -518,6 +717,7 @@ def main() -> int:
 
             return run_sigma_range(
                 args,
+                project_root,
                 dataset_type,
                 dataset_path,
                 algorithms_list,
@@ -542,16 +742,34 @@ def main() -> int:
                 algorithm_class = get_algorithm(algo_name)
                 algo_params = build_algorithm_params(algo_name, args)
                 algorithms.append(algorithm_class(**algo_params))
-            
-            # Create comparison evaluator
+                
+            display_names = [algorithm.name for algorithm in algorithms]
+            output_dir = resolve_comparison_output_dir(
+                project_root,
+                args.output,
+                dataset_type,
+                display_names,
+            )
+
+            all_results: dict[str, list[dict]] = {}
+            for algorithm in algorithms:
+                all_results[algorithm.name] = evaluate_or_reuse_algorithm_results(
+                    algorithm=algorithm,
+                    dataset_loader=dataset_loader,
+                    args=args,
+                    project_root=project_root,
+                    dataset_type=dataset_type,
+                    sigma=args.sigma,
+                    max_images=max_images,
+                    comparison_output_dir=output_dir,
+                )
+
             comparison_evaluator = ComparisonEvaluator(
                 algorithms=algorithms,
                 dataset_loader=dataset_loader,
-                verbose=args.verbose
+                verbose=args.verbose,
             )
-            
-            # Run comparison evaluation
-            comparison_evaluator.evaluate_all()
+            comparison_evaluator.all_results = all_results
             
             # Show image comparisons if requested
             if args.show_images:
@@ -617,7 +835,6 @@ def main() -> int:
                 save_noisy_images=save_noisy_images,
                 split_image_dirs=save_noisy_images,
             )
-            evaluator.plot_results(output_dir, show_plot=args.show_plot, sigma=args.sigma)
             print(f"\nResults saved to: {output_dir}")
         
         return 0

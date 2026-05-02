@@ -4,11 +4,6 @@ from typing import Optional
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 import numpy as np
 
-# Calculate the Mean Squared Error between two images
-def calculate_mse(image1: np.ndarray, image2: np.ndarray) -> float:
-
-    return np.mean((image1 - image2) ** 2)
-
 # Calculate the Peak Signal-to-Noise Ratio between two images
 def calculate_psnr(image1: np.ndarray, image2: np.ndarray, data_range: float = 1.0) -> float:
 
@@ -27,11 +22,10 @@ def calculate_ssim(image1: np.ndarray, image2: np.ndarray, data_range: float = 1
         channel_axis=-1 if multichannel else None
     )
 
-# Calculate all available metrics (MSE, PSNR, SSIM)
+# Calculate all available metrics (PSNR, SSIM)
 def calculate_all_metrics(reference: np.ndarray, denoised: np.ndarray, data_range: float = 1.0) -> dict[str, float]:
 
     metrics = {
-        'mse': calculate_mse(reference, denoised),
         'psnr': calculate_psnr(reference, denoised, data_range=data_range),
         'ssim': calculate_ssim(reference, denoised, data_range=data_range)
     }

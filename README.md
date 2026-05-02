@@ -6,7 +6,7 @@ A modular framework for evaluating and comparing image denoising algorithms. It 
 
 - Multiple algorithms: BM3D, NL-Means, ResUNet, NAFNet, and Restormer
 - Single-algorithm evaluation and multi-algorithm comparison
-- PSNR, MSE, and SSIM metrics
+- PSNR and SSIM metrics
 - Automatic plots and CSV exports
 - Synthetic, real-world paired, and built-in test datasets
 - Pretrained CNN-based denoisers for ResUNet and NAFNet
