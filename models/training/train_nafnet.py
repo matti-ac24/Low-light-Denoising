@@ -87,20 +87,39 @@ class NoisyPatchDataset(Dataset):
         self.sigma_min = sigma_min
         self.sigma_max = sigma_max
         self.channels = channels
-        self.images = [self._load_image(path) for path in self.image_paths]
+
+        # Lazy load images on demand; keep a tiny cache to limit RAM
+        self._image_cache: dict[int, np.ndarray] = {}
 
     def _load_image(self, image_path: Path) -> np.ndarray:
         return _load_image(image_path, self.channels)
 
     def __len__(self) -> int:
-        return len(self.images) * self.patches_per_image
+        return len(self.image_paths) * self.patches_per_image
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
-        image = self.images[index % len(self.images)]
-        _, height, width = image.shape
+        image_idx = index % len(self.image_paths)
+        if image_idx not in self._image_cache:
+            # load and cache
+            self._image_cache[image_idx] = self._load_image(self.image_paths[image_idx])
+            # keep cache small (max 2 images), but never evict the one we just loaded
+            if len(self._image_cache) > 2:
+                # remove the oldest key (smallest numeric key that isn't the one we just added)
+                candidates = [k for k in self._image_cache.keys() if k != image_idx]
+                if candidates:
+                    oldest = min(candidates)
+                    try:
+                        del self._image_cache[oldest]
+                    except KeyError:
+                        pass
+
+        image = self._image_cache[image_idx]
+        channels, height, width = image.shape
 
         if height < self.patch_size or width < self.patch_size:
-            raise ValueError(f"Image is smaller than patch size {self.patch_size}: got {height}x{width}")
+            raise ValueError(
+                f"Image is smaller than patch size {self.patch_size}: got {height}x{width}"
+            )
 
         top = random.randint(0, height - self.patch_size)
         left = random.randint(0, width - self.patch_size)
@@ -108,6 +127,7 @@ class NoisyPatchDataset(Dataset):
         clean_patch = image[:, top:top + self.patch_size, left:left + self.patch_size]
         clean_tensor = torch.from_numpy(clean_patch).float()
 
+        # For real-world paired data we should not add synthetic noise; sigma range will be 0 when using paired_data
         sigma_value = random.uniform(self.sigma_min, self.sigma_max)
         noise = torch.randn_like(clean_tensor) * sigma_value
         noisy_tensor = torch.clamp(clean_tensor + noise, 0.0, 1.0)

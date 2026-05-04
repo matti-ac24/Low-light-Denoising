@@ -102,14 +102,16 @@ class NoisyPatchDataset(Dataset):
         if image_idx not in self._image_cache:
             # load and cache
             self._image_cache[image_idx] = self._load_image(self.image_paths[image_idx])
-            # keep cache small
+            # keep cache small (max 2 images), but never evict the one we just loaded
             if len(self._image_cache) > 2:
-                # remove the smallest key (older images)
-                oldest = min(self._image_cache.keys())
-                try:
-                    del self._image_cache[oldest]
-                except KeyError:
-                    pass
+                # remove the oldest key (smallest numeric key that isn't the one we just added)
+                candidates = [k for k in self._image_cache.keys() if k != image_idx]
+                if candidates:
+                    oldest = min(candidates)
+                    try:
+                        del self._image_cache[oldest]
+                    except KeyError:
+                        pass
 
         image = self._image_cache[image_idx]
         channels, height, width = image.shape
