@@ -21,6 +21,56 @@ if str(SRC_ROOT) not in sys.path:
 from denoiser.algorithms.restormer_denoiser import _build_restormer
 
 
+SUPPORTED_EXTS = {'.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff'}
+
+
+def _load_image(image_path: Path, channels: int) -> np.ndarray:
+    image = img_as_float(io.imread(image_path)).astype(np.float32)
+
+    if channels == 1:
+        if image.ndim == 3:
+            image = rgb2gray(image).astype(np.float32)
+        if image.ndim != 2:
+            raise ValueError(f'Unsupported image shape for grayscale conversion: {image.shape}')
+        image = np.expand_dims(image, axis=0)
+    else:
+        if image.ndim == 2:
+            image = np.repeat(np.expand_dims(image, axis=-1), 3, axis=-1)
+        if image.ndim != 3 or image.shape[2] < 3:
+            raise ValueError(f'Unsupported image shape for RGB conversion: {image.shape}')
+        image = image[:, :, :3]
+        image = np.transpose(image, (2, 0, 1))
+
+    return np.clip(image, 0.0, 1.0)
+
+
+def _collect_paired_images(split_dir: Path) -> list[tuple[Path, Path]]:
+    noisy_files: dict[str, Path] = {}
+    gt_files: dict[str, Path] = {}
+
+    for path in split_dir.rglob('*'):
+        if not path.is_file() or path.suffix.lower() not in SUPPORTED_EXTS:
+            continue
+
+        upper_name = path.name.upper()
+        if upper_name.startswith('NOISY'):
+            noisy_files[path.name[5:]] = path
+        elif upper_name.startswith('GT'):
+            gt_files[path.name[2:]] = path
+
+    paired_keys = sorted(noisy_files.keys() & gt_files.keys())
+    pairs = [(noisy_files[key], gt_files[key]) for key in paired_keys]
+
+    missing_noisy = sorted(gt_files.keys() - noisy_files.keys())
+    missing_gt = sorted(noisy_files.keys() - gt_files.keys())
+    if missing_noisy:
+        print(f"Warning: {len(missing_noisy)} GT file(s) have no matching NOISY pair in {split_dir}")
+    if missing_gt:
+        print(f"Warning: {len(missing_gt)} NOISY file(s) have no matching GT pair in {split_dir}")
+
+    return pairs
+
+
 class NoisyPatchDataset(Dataset):
     def __init__(
         self,
@@ -41,23 +91,7 @@ class NoisyPatchDataset(Dataset):
         self.images = [self._load_image(path) for path in self.image_paths]
 
     def _load_image(self, image_path: Path) -> np.ndarray:
-        image = img_as_float(io.imread(image_path)).astype(np.float32)
-
-        if self.channels == 1:
-            if image.ndim == 3:
-                image = rgb2gray(image).astype(np.float32)
-            if image.ndim != 2:
-                raise ValueError(f'Unsupported image shape for grayscale conversion: {image.shape}')
-            image = np.expand_dims(image, axis=0)
-        else:
-            if image.ndim == 2:
-                image = np.repeat(np.expand_dims(image, axis=-1), 3, axis=-1)
-            if image.ndim != 3 or image.shape[2] < 3:
-                raise ValueError(f'Unsupported image shape for RGB conversion: {image.shape}')
-            image = image[:, :, :3]
-            image = np.transpose(image, (2, 0, 1))
-
-        return np.clip(image, 0.0, 1.0)
+        return _load_image(image_path, self.channels)
 
     def __len__(self) -> int:
         return len(self.images) * self.patches_per_image
@@ -82,6 +116,55 @@ class NoisyPatchDataset(Dataset):
         noisy_tensor = torch.clamp(clean_tensor + noise, 0.0, 1.0)
 
         return noisy_tensor, clean_tensor
+
+
+class PairedPatchDataset(Dataset):
+    def __init__(
+        self,
+        split_dir: Path,
+        patch_size: int,
+        patches_per_image: int,
+        channels: int,
+        random_crop: bool = True,
+    ) -> None:
+        self.split_dir = split_dir
+        self.patch_size = patch_size
+        self.patches_per_image = patches_per_image
+        self.channels = channels
+        self.random_crop = random_crop
+        self.pairs = _collect_paired_images(split_dir)
+
+        if not self.pairs:
+            raise ValueError(f'No paired NOISY/GT images found in: {split_dir}')
+
+    def __len__(self) -> int:
+        return len(self.pairs) * self.patches_per_image
+
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
+        noisy_path, gt_path = self.pairs[index % len(self.pairs)]
+        noisy = _load_image(noisy_path, self.channels)
+        clean = _load_image(gt_path, self.channels)
+
+        if noisy.shape != clean.shape:
+            raise ValueError(f'Mismatched pair shapes for {noisy_path.name}: {noisy.shape} vs {clean.shape}')
+
+        channels, height, width = clean.shape
+        if height < self.patch_size or width < self.patch_size:
+            raise ValueError(
+                f'Image is smaller than patch size {self.patch_size}: got {height}x{width}'
+            )
+
+        if self.random_crop:
+            top = random.randint(0, height - self.patch_size)
+            left = random.randint(0, width - self.patch_size)
+        else:
+            top = (height - self.patch_size) // 2
+            left = (width - self.patch_size) // 2
+
+        noisy_patch = noisy[:, top:top + self.patch_size, left:left + self.patch_size]
+        clean_patch = clean[:, top:top + self.patch_size, left:left + self.patch_size]
+
+        return torch.from_numpy(noisy_patch).float(), torch.from_numpy(clean_patch).float()
 
 
 def resolve_device(device_arg: str) -> torch.device:
@@ -147,6 +230,20 @@ def describe_model(model: torch.nn.Module, channels: int, patch_size: int, devic
     return '\n'.join(lines)
 
 
+def evaluate_loss(model: torch.nn.Module, dataloader: DataLoader, criterion: torch.nn.Module, device: torch.device) -> float:
+    model.eval()
+    total_loss = 0.0
+
+    with torch.no_grad():
+        for noisy_batch, clean_batch in dataloader:
+            noisy_batch = noisy_batch.to(device)
+            clean_batch = clean_batch.to(device)
+            denoised_batch = model(noisy_batch)
+            total_loss += criterion(denoised_batch, clean_batch).item()
+
+    return total_loss / max(1, len(dataloader))
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Train Restormer denoiser')
 
@@ -210,55 +307,83 @@ def main() -> int:
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(args.seed)
 
-    sigma_min, sigma_max = resolve_sigma_range(args)
-    num_blocks = parse_int_tuple(args.num_blocks, expected_len=4, flag_name='--num-blocks')
-    heads = parse_int_tuple(args.heads, expected_len=4, flag_name='--heads')
-
     dataset_dir = Path(args.dataset_path)
     if not dataset_dir.exists():
         raise FileNotFoundError(f'Dataset path not found: {dataset_dir}')
 
-    image_paths = sorted(
-        [
-            path
-            for path in dataset_dir.rglob('*')
-            if path.suffix.lower() in {'.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff'}
-        ]
-    )
+    train_split_dir = dataset_dir / 'train'
+    test_split_dir = dataset_dir / 'test'
+    paired_data = train_split_dir.exists() and test_split_dir.exists()
 
-    if not image_paths:
-        raise ValueError(f'No supported image files found in: {dataset_dir}')
+    sigma_min, sigma_max = (0.0, 0.0) if paired_data else resolve_sigma_range(args)
+    num_blocks = parse_int_tuple(args.num_blocks, expected_len=4, flag_name='--num-blocks')
+    heads = parse_int_tuple(args.heads, expected_len=4, flag_name='--heads')
 
     device = resolve_device(args.device)
     print(f'Using device: {device}')
-    print(f'Found {len(image_paths)} training image(s)')
-    if sigma_min == sigma_max:
-        print(f'Training with fixed sigma: {sigma_min:.4f}')
-    else:
-        print(f'Training with sigma sampled per patch from [{sigma_min:.4f}, {sigma_max:.4f}]')
 
-    dataset = NoisyPatchDataset(
-        image_paths=image_paths,
-        patch_size=args.patch_size,
-        patches_per_image=args.patches_per_image,
-        sigma_min=sigma_min,
-        sigma_max=sigma_max,
-        channels=args.channels,
-    )
-    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=0)
+    if paired_data:
+        train_dataset = PairedPatchDataset(
+            split_dir=train_split_dir,
+            patch_size=args.patch_size,
+            patches_per_image=args.patches_per_image,
+            channels=args.channels,
+            random_crop=True,
+        )
+        val_dataset = PairedPatchDataset(
+            split_dir=test_split_dir,
+            patch_size=args.patch_size,
+            patches_per_image=1,
+            channels=args.channels,
+            random_crop=False,
+        )
+
+        print('Using paired real-world data')
+        print(f'Train split: {train_split_dir}')
+        print(f'Validation split: {test_split_dir}')
+        print(f'Found {len(train_dataset.pairs)} paired training image(s)')
+        print(f'Found {len(val_dataset.pairs)} paired validation image(s)')
+        train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=0)
+        val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=0)
+    else:
+        image_paths = sorted([
+            path
+            for path in dataset_dir.rglob('*')
+            if path.suffix.lower() in SUPPORTED_EXTS
+        ])
+
+        if not image_paths:
+            raise ValueError(f'No supported image files found in: {dataset_dir}')
+
+        print(f'Found {len(image_paths)} training image(s)')
+        if sigma_min == sigma_max:
+            print(f'Training with fixed sigma: {sigma_min:.4f}')
+        else:
+            print(f'Training with sigma sampled per patch from [{sigma_min:.4f}, {sigma_max:.4f}]')
+
+        train_dataset = NoisyPatchDataset(
+            image_paths=image_paths,
+            patch_size=args.patch_size,
+            patches_per_image=args.patches_per_image,
+            sigma_min=sigma_min,
+            sigma_max=sigma_max,
+            channels=args.channels,
+        )
+        train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=0)
+        val_loader = None
 
     model = _build_restormer(
         in_channels=args.channels,
         base_channels=args.base_channels,
-        num_blocks=num_blocks,
-        heads=heads,
+        num_blocks=list(num_blocks),
+        heads=list(heads),
         ffn_expansion=args.ffn_expansion,
     ).to(device)
 
-    # Load pre-trained weights if provided (transfer learning)
     if args.initial_weights:
         checkpoint = torch.load(args.initial_weights, map_location=device)
-        model.load_state_dict(checkpoint['model_state_dict'])
+        state_dict = checkpoint.get('state_dict', checkpoint.get('model_state_dict', checkpoint))
+        model.load_state_dict(state_dict)
         print(f'Loaded pre-trained weights from: {args.initial_weights}')
 
     model_description = describe_model(model, channels=args.channels, patch_size=args.patch_size, device=device)
@@ -272,7 +397,7 @@ def main() -> int:
         epoch_loss = 0.0
 
         progress = tqdm(
-            dataloader,
+            train_loader,
             desc=f'Epoch {epoch:03d}/{args.epochs:03d}',
             unit='batch',
             leave=False,
@@ -291,8 +416,12 @@ def main() -> int:
             epoch_loss += loss.item()
             progress.set_postfix(batch_loss=f'{loss.item():.6f}')
 
-        avg_loss = epoch_loss / max(1, len(dataloader))
+        avg_loss = epoch_loss / max(1, len(train_loader))
         print(f'Epoch {epoch:03d}/{args.epochs:03d} - L1 Loss: {avg_loss:.6f}')
+
+        if val_loader is not None:
+            val_loss = evaluate_loss(model, val_loader, criterion, device)
+            print(f'Epoch {epoch:03d}/{args.epochs:03d} - Validation L1 Loss: {val_loss:.6f}')
 
     save_path = Path(args.save_path)
     save_path.parent.mkdir(parents=True, exist_ok=True)
@@ -310,6 +439,9 @@ def main() -> int:
         'sigma_range': [sigma_min, sigma_max],
         'patch_size': args.patch_size,
         'epochs': args.epochs,
+        'paired_data': paired_data,
+        'train_split_name': 'train',
+        'val_split_name': 'test',
     }
     torch.save(checkpoint, save_path)
     print(f'Saved checkpoint to: {save_path}')
