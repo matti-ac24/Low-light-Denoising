@@ -170,6 +170,12 @@ def parse_args() -> argparse.Namespace:
         default=str((Path(__file__).resolve().parents[1] / 'weights' / 'nafnet.pth')),
         help='Output checkpoint path',
     )
+    parser.add_argument(
+        '--initial-weights',
+        type=str,
+        default=None,
+        help='Path to pre-trained weights checkpoint for transfer learning',
+    )
 
     return parser.parse_args()
 
@@ -225,6 +231,13 @@ def main() -> int:
         middle_blocks=args.middle_blocks,
         expansion=args.expansion,
     ).to(device)
+
+    # Load pre-trained weights if provided (transfer learning)
+    if args.initial_weights:
+        checkpoint = torch.load(args.initial_weights, map_location=device)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        print(f'Loaded pre-trained weights from: {args.initial_weights}')
+
     model_description = describe_model(model, channels=args.channels, patch_size=args.patch_size, device=device)
     print('\n' + model_description + '\n')
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
