@@ -111,7 +111,7 @@ python -m denoiser --test restormer --device cpu --show-architecture
 
 ```bash
 python -m denoiser --synthetic --compare bm3d nl-means resunet nafnet \
-    --max-images 1 --sample-seed 42
+    --output results/compare
 ```
 
 This writes to a canonical comparison folder (algorithm order does not matter), for example:
@@ -122,7 +122,6 @@ This writes to a canonical comparison folder (algorithm order does not matter), 
 
 ```bash
 python -m denoiser --synthetic --compare bm3d nl-means resunet nafnet \
-    --max-images 1 --sample-seed 42 \
     --sigma-range 0.05,0.2,0.05 \
     --output results/sigma_range_compare
 ```
@@ -142,8 +141,6 @@ python -m denoiser --synthetic --compare bm3d nl-means resunet nafnet \
 ### Dataset Configuration
 
 - `--sigma FLOAT` - Noise level for synthetic datasets
-- `--max-images INT` - Process up to N randomly selected images
-- `--sample-seed INT` - Deterministic image sampling seed
 - `--sigma-range start,end,step` - Evaluate a sigma sweep on synthetic data
 
 ### Algorithm Parameters
@@ -158,9 +155,9 @@ python -m denoiser --synthetic --compare bm3d nl-means resunet nafnet \
 
 - `--output DIR` - Optional base directory for comparison and sigma-range results. For comparison mode, outputs are written under `<output>/<algorithm-combination>/<dataset-type>/`. Without `--output`, default base is `<project-root>/results/compare`.
 - `--show-plot` - Display plots interactively
-- `--show-images` - Display noisy vs denoised images
-- `--num-display INT` - Number of images to display with `--show-images`
 - `--verbose` - Show detailed output
+
+Comparison mode now processes the full available dataset for the selected dataset type and always saves results under `images/`, `metrics/`, and `plots/` inside the comparison folder.
 
 ## Training
 

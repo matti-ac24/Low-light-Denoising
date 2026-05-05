@@ -66,7 +66,6 @@ class Evaluator:
             self.show_progress
             and not self.verbose
             and self.dataset_loader.dataset_type in ['synthetic', 'real-world']
-            and getattr(self.dataset_loader, 'max_images', None) is None
         )
 
         iterable = enumerate(images, 1)
@@ -313,56 +312,6 @@ class Evaluator:
             except Exception as e:
                 print(f"Warning: Could not save images: {e}")
     
-    # Display side-by-side comparison of random noisy and denoised images
-    def show_image_comparison(self, num_images: int = 3) -> None:
-
-        if not self.results:
-            print("Warning: No results to display!")
-            return
-        
-        # Select random subset of images
-        num_to_show = min(num_images, len(self.results))
-        indices = np.random.choice(len(self.results), size=num_to_show, replace=False)
-        selected_results = [self.results[i] for i in indices]
-        
-        # Create figure with subplots
-        fig, axes = plt.subplots(num_to_show, 3, figsize=(15, 5 * num_to_show))
-        
-        # Handle single image case
-        if num_to_show == 1:
-            axes = axes.reshape(1, -1)
-        
-        for idx, result in enumerate(selected_results):
-            # Get images
-            clean = result['clean']
-            noisy = result['noisy']
-            denoised = result['denoised']
-            
-            # Get metrics
-            noisy_psnr = result['noisy_metrics']['psnr']
-            denoised_psnr = result['denoised_metrics']['psnr']
-            improvement = denoised_psnr - noisy_psnr
-            
-            # Display clean image
-            axes[idx, 0].imshow(clean, cmap='gray' if clean.ndim == 2 else None)
-            axes[idx, 0].set_title(f"Clean: {result['name']}", fontsize=12, fontweight='bold')
-            axes[idx, 0].axis('off')
-            
-            # Display noisy image
-            axes[idx, 1].imshow(noisy, cmap='gray' if noisy.ndim == 2 else None)
-            axes[idx, 1].set_title(f"Noisy (PSNR: {noisy_psnr:.2f} dB)", fontsize=12)
-            axes[idx, 1].axis('off')
-            
-            # Display denoised image
-            axes[idx, 2].imshow(denoised, cmap='gray' if denoised.ndim == 2 else None)
-            axes[idx, 2].set_title(f"Denoised (PSNR: {denoised_psnr:.2f} dB, Δ{improvement:+.2f} dB)", fontsize=12, color='green')
-            axes[idx, 2].axis('off')
-        
-        plt.suptitle(f"Image Quality Comparison - {self.algorithm.name}", fontsize=16, fontweight='bold', y=0.995)
-        plt.tight_layout()
-        plt.show()
-
-
 # Evaluator for comparing multiple denoising algorithms
 class ComparisonEvaluator:
 
@@ -627,58 +576,3 @@ class ComparisonEvaluator:
         if self.verbose:
             print(f"Comparison summary saved to: {csv_path}")
     
-    # Display side-by-side comparison of random images across all algorithms
-    def show_image_comparison(self, num_images: int = 3) -> None:
-
-        if not self.all_results:
-            print("Warning: No results to display!")
-            return
-        
-        # Get first algorithm's results to determine image count
-        first_algo = list(self.all_results.keys())[0]
-        available_images = len(self.all_results[first_algo])
-        
-        # Select random subset of images
-        num_to_show = min(num_images, available_images)
-        indices = np.random.choice(available_images, size=num_to_show, replace=False)
-        
-        # Create figure: rows = images, columns = algorithms + 2 (clean + noisy)
-        num_cols = len(self.algorithms) + 2
-        fig, axes = plt.subplots(num_to_show, num_cols, figsize=(5 * num_cols, 5 * num_to_show))
-        
-        # Handle single image case
-        if num_to_show == 1:
-            axes = axes.reshape(1, -1)
-        
-        for row_idx, img_idx in enumerate(indices):
-            # Get data from first algorithm
-            first_result = self.all_results[first_algo][img_idx]
-            clean = first_result['clean']
-            noisy = first_result['noisy']
-            noisy_psnr = first_result['noisy_metrics']['psnr']
-            
-            # Display clean image
-            axes[row_idx, 0].imshow(clean, cmap='gray' if clean.ndim == 2 else None)
-            axes[row_idx, 0].set_title(f"Clean: {first_result['name']}", fontsize=11, fontweight='bold')
-            axes[row_idx, 0].axis('off')
-            
-            # Display noisy image
-            axes[row_idx, 1].imshow(noisy, cmap='gray' if noisy.ndim == 2 else None)
-            axes[row_idx, 1].set_title(f"Noisy\n(PSNR: {noisy_psnr:.2f} dB)", fontsize=11)
-            axes[row_idx, 1].axis('off')
-            
-            # Display denoised images for each algorithm
-            for col_idx, algo_name in enumerate(self.all_results.keys()):
-                result = self.all_results[algo_name][img_idx]
-                denoised = result['denoised']
-                denoised_psnr = result['denoised_metrics']['psnr']
-                improvement = denoised_psnr - noisy_psnr
-                
-                axes[row_idx, col_idx + 2].imshow(denoised, cmap='gray' if denoised.ndim == 2 else None)
-                axes[row_idx, col_idx + 2].set_title(f"{algo_name}\n(PSNR: {denoised_psnr:.2f} dB, Δ{improvement:+.2f} dB)", 
-                                                      fontsize=11, color='green')
-                axes[row_idx, col_idx + 2].axis('off')
-        
-        plt.suptitle("Algorithm Comparison - Image Quality", fontsize=16, fontweight='bold', y=0.995)
-        plt.tight_layout()
-        plt.show()

@@ -156,7 +156,6 @@ def evaluate_or_reuse_algorithm_results(
     project_root: Path,
     dataset_type: str,
     sigma: float | None,
-    max_images: int | None,
     comparison_output_dir: Path | None = None,
 ) -> list[dict]:
 
@@ -170,18 +169,17 @@ def evaluate_or_reuse_algorithm_results(
         sigma,
     )
 
-    if not args.show_images:
-        cached_results = load_cached_single_results(metrics_csv_path, image_names)
-        if cached_results is not None:
-            if args.verbose:
-                print(f"Reusing cached metrics for {algorithm.name} from: {metrics_csv_path}")
-            mirror_single_results_to_comparison_dir(
-                single_output_dir=get_single_output_dir(project_root, algorithm.name, dataset_type),
-                comparison_output_dir=comparison_output_dir,
-                results=cached_results,
-                sigma=sigma,
-            )
-            return cached_results
+    cached_results = load_cached_single_results(metrics_csv_path, image_names)
+    if cached_results is not None:
+        if args.verbose:
+            print(f"Reusing cached metrics for {algorithm.name} from: {metrics_csv_path}")
+        mirror_single_results_to_comparison_dir(
+            single_output_dir=get_single_output_dir(project_root, algorithm.name, dataset_type),
+            comparison_output_dir=comparison_output_dir,
+            results=cached_results,
+            sigma=sigma,
+        )
+        return cached_results
 
     evaluator = Evaluator(
         algorithm=algorithm,
@@ -190,7 +188,6 @@ def evaluate_or_reuse_algorithm_results(
         show_progress=(
             not args.verbose
             and dataset_type in ['synthetic', 'real-world']
-            and max_images is None
         ),
     )
     results = evaluator.evaluate()
@@ -243,7 +240,6 @@ def _create_representative_comparison_image(
     comparison_dir: Path,
     dataset_loader: object,
     algorithm_names: list[str],
-    sample_seed: int = 42,
     patch_size: int | None = 128,
     verbose: bool = False,
     preferred_sigma: float | None = None,
@@ -305,10 +301,10 @@ def _create_representative_comparison_image(
     chosen_name = None
     if common_names:
         sorted_names = sorted(common_names)
-        rng = np.random.RandomState(sample_seed)
+        rng = np.random.RandomState(42)
         chosen_name = sorted_names[int(rng.randint(0, len(sorted_names)))]
     elif images_list:
-        rng = np.random.RandomState(sample_seed)
+        rng = np.random.RandomState(42)
         chosen = images_list[int(rng.randint(0, len(images_list)))]
         chosen_name = chosen['name']
 
@@ -512,16 +508,6 @@ def parse_sigma_range(sigma_range_arg: str) -> list[float]:
     return sigmas
 
 
-def resolve_max_images(args: argparse.Namespace) -> int | None:
-    if args.max_images is None:
-        return None
-
-    if args.max_images < 1:
-        raise ValueError("--max-images must be >= 1")
-
-    return args.max_images
-
-
 def run_sigma_range(
     args: argparse.Namespace,
     project_root: Path,
@@ -529,7 +515,6 @@ def run_sigma_range(
     dataset_path: str,
     algorithms_list: list[str],
     is_comparison: bool,
-    max_images: int | None,
     output_dir: Path,
 ) -> int:
 
@@ -573,8 +558,6 @@ def run_sigma_range(
             dataset_type=dataset_type,
             dataset_path=dataset_path,
             noise_sigma=sigma,
-            max_images=max_images,
-            sample_seed=args.sample_seed,
         )
 
         if is_comparison:
@@ -597,7 +580,6 @@ def run_sigma_range(
                     project_root=project_root,
                     dataset_type=dataset_type,
                     sigma=sigma,
-                    max_images=max_images,
                     comparison_output_dir=output_dir,
                 )
 
@@ -608,7 +590,6 @@ def run_sigma_range(
                     comparison_dir=output_dir,
                     dataset_loader=dataset_loader,
                     algorithm_names=algo_names,
-                    sample_seed=args.sample_seed,
                     verbose=args.verbose,
                     preferred_sigma=0.1,
                 )
@@ -635,11 +616,7 @@ def run_sigma_range(
                 algorithm=algorithm,
                 dataset_loader=dataset_loader,
                 verbose=args.verbose,
-                show_progress=(
-                    not args.verbose
-                    and dataset_type in ['synthetic', 'real-world']
-                    and max_images is None
-                ),
+                show_progress=(not args.verbose and dataset_type in ['synthetic', 'real-world']),
             )
             results = evaluator.evaluate()
 
@@ -789,20 +766,6 @@ Examples:
         help='Sigma range as start,end,step (e.g. 0.05,0.2,0.05)'
     )
 
-    parser.add_argument(
-        '--max-images',
-        type=int,
-        default=None,
-        help='Process up to N randomly selected images from the dataset'
-    )
-
-    parser.add_argument(
-        '--sample-seed',
-        type=int,
-        default=42,
-        help='Random seed used for image sampling (default: 42)'
-    )
-    
     # Algorithm parameters
     parser.add_argument(
         '--patch-size',
@@ -850,19 +813,6 @@ Examples:
         '--show-plot',
         action='store_true',
         help='Display generated plots interactively'
-    )
-    
-    parser.add_argument(
-        '--show-images',
-        action='store_true',
-        help='Display side-by-side comparison of noisy and denoised images'
-    )
-    
-    parser.add_argument(
-        '--num-display',
-        type=int,
-        default=3,
-        help='Number of random images to display with --show-images (default: 3)'
     )
     
     parser.add_argument(
@@ -934,13 +884,9 @@ def main() -> int:
         print(f"Using dataset path: {dataset_path}")
     
     try:
-        if dataset_type == 'test' and args.max_images is not None:
-            raise ValueError("--max-images is not supported with --test")
-
         # Check if comparison mode (multiple algorithms or --compare flag)
         algorithms_list = args.algorithm if isinstance(args.algorithm, list) else [args.algorithm]
         is_comparison = args.compare or len(algorithms_list) > 1
-        max_images = resolve_max_images(args)
 
         if args.sigma_range:
             if dataset_type != 'synthetic':
@@ -980,7 +926,6 @@ def main() -> int:
                 dataset_path,
                 algorithms_list,
                 is_comparison,
-                max_images,
                 output_dir,
             )
 
@@ -989,8 +934,6 @@ def main() -> int:
             dataset_type=dataset_type,
             dataset_path=dataset_path,
             noise_sigma=args.sigma,
-            max_images=max_images,
-            sample_seed=args.sample_seed,
         )
         
         if is_comparison:
@@ -1018,7 +961,6 @@ def main() -> int:
                     project_root=project_root,
                     dataset_type=dataset_type,
                     sigma=args.sigma,
-                    max_images=max_images,
                     comparison_output_dir=output_dir,
                 )
 
@@ -1029,10 +971,6 @@ def main() -> int:
             )
             comparison_evaluator.all_results = all_results
             
-            # Show image comparisons if requested
-            if args.show_images:
-                comparison_evaluator.show_image_comparison(num_images=args.num_display)
-
             display_names = [algorithm.name for algorithm in algorithms]
             output_dir = resolve_comparison_output_dir(
                 project_root,
@@ -1054,7 +992,6 @@ def main() -> int:
                     comparison_dir=output_dir,
                     dataset_loader=dataset_loader,
                     algorithm_names=algo_names,
-                    sample_seed=args.sample_seed,
                     verbose=args.verbose,
                 )
             except Exception as e:
@@ -1078,17 +1015,12 @@ def main() -> int:
                 show_progress=(
                     not args.verbose
                     and dataset_type in ['synthetic', 'real-world']
-                    and max_images is None
                 ),
             )
             
             # Run evaluation
             evaluator.evaluate()
             
-            # Show image comparisons if requested
-            if args.show_images:
-                evaluator.show_image_comparison(num_images=args.num_display)
-
             output_dir = (
                 project_root
                 / 'results'
