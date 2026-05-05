@@ -239,6 +239,249 @@ def resolve_comparison_output_dir(
     return comparison_dir
 
 
+def _create_representative_comparison_image(
+    comparison_dir: Path,
+    dataset_loader: object,
+    algorithm_names: list[str],
+    sample_seed: int = 42,
+    patch_size: int | None = 128,
+    verbose: bool = False,
+    preferred_sigma: float | None = None,
+) -> None:
+    """Create and save a representative side-by-side patch image for comparison."""
+    try:
+        import numpy as np
+        import matplotlib.pyplot as plt
+        from skimage import io, img_as_float
+    except Exception:
+        return
+
+    dataset_type = dataset_loader.dataset_type
+    if verbose:
+        print(f"\n[Representative Image] Creating composite patch...")
+    
+    project_root = Path(__file__).resolve().parents[2]
+    per_algo_image_sets: dict[str, set[str]] = {}
+
+    sigma_suffix = ''
+    if preferred_sigma is not None:
+        sigma_suffix = format_sigma_suffix_for_metrics(preferred_sigma)
+
+    # Find common image names among algorithms
+    for algo in algorithm_names:
+        algo_folder_name = format_algorithm_for_path(algo)
+        cache_images_dir = comparison_dir / 'cache' / algo_folder_name / dataset_type / 'images'
+        single_images_dir = project_root / 'results' / 'single' / algo_folder_name / dataset_type / 'images'
+
+        candidate_files = []
+        if cache_images_dir.exists():
+            if sigma_suffix:
+                candidate_files = list(cache_images_dir.rglob(f'*denoised{sigma_suffix}.png'))
+            if not candidate_files:
+                candidate_files = list(cache_images_dir.rglob('*denoised*.png'))
+        if not candidate_files and single_images_dir.exists():
+            if sigma_suffix:
+                candidate_files = list(single_images_dir.rglob(f'*denoised{sigma_suffix}.png'))
+            if not candidate_files:
+                candidate_files = list(single_images_dir.rglob('*denoised*.png'))
+
+        names = set()
+        for p in candidate_files:
+            stem = p.name
+            if '_denoised' in stem:
+                names.add(stem.split('_denoised')[0])
+        per_algo_image_sets[algo] = names
+        if verbose and names:
+            print(f"  Found {len(names)} images for {algo}")
+
+    # Select common image
+    common_names = None
+    if per_algo_image_sets:
+        sets = [s for s in per_algo_image_sets.values() if s]
+        if sets:
+            common_names = set.intersection(*sets) if len(sets) > 1 else sets[0]
+
+    images_list = dataset_loader.load_images()
+    chosen_name = None
+    if common_names:
+        sorted_names = sorted(common_names)
+        rng = np.random.RandomState(sample_seed)
+        chosen_name = sorted_names[int(rng.randint(0, len(sorted_names)))]
+    elif images_list:
+        rng = np.random.RandomState(sample_seed)
+        chosen = images_list[int(rng.randint(0, len(images_list)))]
+        chosen_name = chosen['name']
+
+    if not chosen_name:
+        if verbose:
+            print(f"  No image found, skipping...")
+        return
+    
+    if verbose:
+        print(f"  Selected image: {chosen_name}")
+
+    # Load clean and noisy
+    clean = None
+    noisy = None
+    for item in images_list:
+        if item['name'] == chosen_name:
+            clean = img_as_float(item['clean'])
+            noisy = img_as_float(item['noisy'])
+            break
+
+    if clean is None or noisy is None:
+        if verbose:
+            print(f"  Could not load clean/noisy pair")
+        return
+
+    # Load denoised images
+    denoised_images: dict[str, np.ndarray] = {}
+    for algo in algorithm_names:
+        algo_folder_name = format_algorithm_for_path(algo)
+        cache_images_dir = comparison_dir / 'cache' / algo_folder_name / dataset_type / 'images'
+        single_images_dir = project_root / 'results' / 'single' / algo_folder_name / dataset_type / 'images'
+
+        paths_to_search = []
+        if cache_images_dir.exists():
+            paths_to_search.append(cache_images_dir)
+        if single_images_dir.exists():
+            paths_to_search.append(single_images_dir)
+
+        found = None
+        for base in paths_to_search:
+            if sigma_suffix:
+                for p in base.rglob(f"{chosen_name}_denoised{sigma_suffix}.png"):
+                    found = p
+                    break
+            if found:
+                break
+            for p in base.rglob(f"{chosen_name}_denoised*.png"):
+                found = p
+                break
+            if found:
+                break
+
+        if not found:
+            for base in paths_to_search:
+                den_folder = base / 'denoised'
+                if den_folder.exists():
+                    if sigma_suffix:
+                        for p in den_folder.rglob(f"{chosen_name}_denoised{sigma_suffix}.png"):
+                            found = p
+                            break
+                    if found:
+                        break
+                    for p in den_folder.rglob(f"{chosen_name}_denoised*.png"):
+                        found = p
+                        break
+                if found:
+                    break
+
+        if found:
+            try:
+                img = img_as_float(io.imread(str(found)))
+                denoised_images[algo] = img
+            except Exception:
+                continue
+
+    if not denoised_images:
+        if verbose:
+            print(f"  No denoised images loaded")
+        return
+
+    # Select representative patch
+    h, w = clean.shape[:2]
+    ps = min(patch_size or 128, h, w)
+
+    den_mean = np.mean(np.stack([den for den in denoised_images.values() if den.shape[:2] == clean.shape[:2]]), axis=0)
+    if den_mean.ndim == 3 and clean.ndim == 2:
+        den_mean = np.mean(den_mean, axis=2)
+    if clean.ndim == 3 and den_mean.ndim == 2:
+        den_mean = np.stack([den_mean]*clean.shape[2], axis=2)
+
+    try:
+        error_map = np.mean(np.abs(den_mean - clean), axis=2) if clean.ndim == 3 else np.abs(den_mean - clean)
+    except Exception:
+        error_map = np.mean(np.abs(noisy - clean), axis=2) if clean.ndim == 3 else np.abs(noisy - clean)
+
+    stride = max(1, ps // 4)
+    best_sum = -1.0
+    best_top = 0
+    best_left = 0
+    for top in range(0, h - ps + 1, stride):
+        for left in range(0, w - ps + 1, stride):
+            patch = error_map[top:top+ps, left:left+ps]
+            s = float(np.sum(patch))
+            if s > best_sum:
+                best_sum = s
+                best_top = top
+                best_left = left
+
+    # Crop patches
+    def _crop(img_arr):
+        if img_arr.ndim == 2:
+            return img_arr[best_top:best_top+ps, best_left:best_left+ps]
+        return img_arr[best_top:best_top+ps, best_left:best_left+ps, :]
+
+    crop_clean = _crop(clean)
+    crop_noisy = _crop(noisy)
+    crops_denoised = {algo: _crop(img) for algo, img in denoised_images.items()}
+
+    # Build figure with labels (closer to standard side-by-side comparison reference layouts)
+    def _to_rgb(arr):
+        if arr.ndim == 2:
+            return np.stack([arr] * 3, axis=2)
+        if arr.shape[2] == 3:
+            return arr
+        return arr[:, :, :3]
+
+    panels: list[tuple[str, np.ndarray]] = [
+        ('Clean / GT', _to_rgb(crop_clean)),
+        ('Noisy', _to_rgb(crop_noisy)),
+    ]
+    for algo in algorithm_names:
+        if algo in crops_denoised:
+            panels.append((algo, _to_rgb(crops_denoised[algo])))
+
+    if len(panels) < 3:
+        if verbose:
+            print('  Not enough panels to save representative image')
+        return
+
+    n_cols = len(panels)
+    fig, axes = plt.subplots(1, n_cols, figsize=(3.2 * n_cols, 3.6), dpi=160)
+    if n_cols == 1:
+        axes = [axes]
+
+    for i, (title, panel_img) in enumerate(panels):
+        ax = axes[i]
+        ax.imshow(np.clip(panel_img, 0.0, 1.0))
+        ax.set_title(title, fontsize=10)
+        ax.axis('off')
+
+    sigma_title = ''
+    if preferred_sigma is not None:
+        sigma_title = f' (denoised at sigma={preferred_sigma:.3f})'
+    fig.suptitle(f'Representative Patch: {chosen_name}{sigma_title}', fontsize=12)
+    fig.tight_layout()
+
+    # Save
+    out_dir = comparison_dir / 'images'
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"representative_{dataset_type}_{chosen_name}.png"
+    try:
+        fig.savefig(out_path, bbox_inches='tight')
+    except Exception as e:
+        if verbose:
+            print(f"  Error saving: {e}")
+        plt.close(fig)
+        return
+    plt.close(fig)
+
+    if Path(out_path).exists() and verbose:
+        print(f"  Saved to {out_path}")
+
+
 def parse_sigma_range(sigma_range_arg: str) -> list[float]:
 
     values = [item.strip() for item in sigma_range_arg.split(',') if item.strip()]
@@ -357,6 +600,21 @@ def run_sigma_range(
                     max_images=max_images,
                     comparison_output_dir=output_dir,
                 )
+
+            # Create a representative side-by-side patch image for this comparison
+            try:
+                algo_names = [algorithm.name for algorithm in algorithms]
+                _create_representative_comparison_image(
+                    comparison_dir=output_dir,
+                    dataset_loader=dataset_loader,
+                    algorithm_names=algo_names,
+                    sample_seed=args.sample_seed,
+                    verbose=args.verbose,
+                    preferred_sigma=0.1,
+                )
+            except Exception as e:
+                if args.verbose:
+                    print(f"  Error creating representative image: {e}")
 
             for algo_display_name, results in all_results.items():
                 denoised_psnr = [r['denoised_metrics']['psnr'] for r in results]
@@ -788,6 +1046,21 @@ def main() -> int:
                 output_dir,
                 show_plot=args.show_plot,
             )
+            
+            # Create representative image
+            try:
+                algo_names = [algorithm.name for algorithm in algorithms]
+                _create_representative_comparison_image(
+                    comparison_dir=output_dir,
+                    dataset_loader=dataset_loader,
+                    algorithm_names=algo_names,
+                    sample_seed=args.sample_seed,
+                    verbose=args.verbose,
+                )
+            except Exception as e:
+                if args.verbose:
+                    print(f"  Error creating representative image: {e}")
+            
             print(f"\nComparison results saved to: {output_dir}")
         
         else:
