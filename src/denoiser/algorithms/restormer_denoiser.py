@@ -233,10 +233,15 @@ class RestormerDenoiser(BaseDenoiser):
         ffn_expansion: float = 2.66,
         device: str = 'auto',
         show_architecture: bool = False,
+        model_path: Optional[str] = None,
     ) -> None:
-        model_path = Path(__file__).resolve().parents[3] / 'models' / 'weights' / 'restormer.pth'
+        # Resolve model path: allow override (e.g., real-world pretrained weights)
+        if model_path is None:
+            resolved_path = Path(__file__).resolve().parents[3] / 'models' / 'weights' / 'restormer.pth'
+        else:
+            resolved_path = Path(model_path)
         super().__init__(
-            model_path=str(model_path),
+            model_path=str(resolved_path),
             base_channels=base_channels,
             num_blocks=num_blocks,
             heads=heads,
@@ -244,7 +249,7 @@ class RestormerDenoiser(BaseDenoiser):
             device=device,
             show_architecture=show_architecture,
         )
-        self.model_path = model_path
+        self.model_path = resolved_path
         self.base_channels = base_channels
         self.num_blocks = num_blocks
         self.heads = heads

@@ -12,7 +12,7 @@ from .evaluator import Evaluator, ComparisonEvaluator
 
 
 DEFAULT_SYNTHETIC_DATASET_REL_PATH = Path('data/benchmark/clean/test')
-DEFAULT_REAL_WORLD_DATASET_REL_PATH = Path('data/demo_pair')
+DEFAULT_REAL_WORLD_DATASET_REL_PATH = Path('data/SIDD_patches/test')
 DEFAULT_COMPARISON_OUTPUT_REL_PATH = Path('results/compare')
 
 
@@ -539,7 +539,7 @@ def run_sigma_range(
     algo_metrics: dict[str, dict[str, list[float]]] = {}
     for algo_name in algorithms_list:
         algorithm_class = get_algorithm(algo_name)
-        algo_params = build_algorithm_params(algo_name, args)
+        algo_params = build_algorithm_params(algo_name, args, dataset_type)
         if 'sigma' in algo_params:
             algo_params['sigma'] = sigma_values[0]
         if 'sigma_psd' in algo_params:
@@ -564,7 +564,7 @@ def run_sigma_range(
             algorithms = []
             for algo_name in algorithms_list:
                 algorithm_class = get_algorithm(algo_name)
-                algo_params = build_algorithm_params(algo_name, args)
+                algo_params = build_algorithm_params(algo_name, args, dataset_type)
                 if 'sigma' in algo_params:
                     algo_params['sigma'] = sigma
                 if 'sigma_psd' in algo_params:
@@ -605,7 +605,7 @@ def run_sigma_range(
         else:
             algorithm_name = algorithms_list[0]
             algorithm_class = get_algorithm(algorithm_name)
-            algo_params = build_algorithm_params(algorithm_name, args)
+            algo_params = build_algorithm_params(algorithm_name, args, dataset_type)
             if 'sigma' in algo_params:
                 algo_params['sigma'] = sigma
             if 'sigma_psd' in algo_params:
@@ -824,7 +824,15 @@ Examples:
     return parser.parse_args()
 
 # Build a parameter dictionary for a specific algorithm
-def build_algorithm_params(algorithm_name: str, args: argparse.Namespace) -> dict:
+def build_algorithm_params(algorithm_name: str, args: argparse.Namespace, dataset_type: str | None = None) -> dict:
+
+    # Allow dataset-specific overrides (e.g., different pretrained weights for real-world)
+    model_override: str | None = None
+    if dataset_type == 'real-world':
+        if algorithm_name == 'nafnet':
+            model_override = str(Path(__file__).resolve().parents[2] / 'models' / 'weights' / 'nafnet_real_world.pth')
+        if algorithm_name in ['restormer', 'restorer']:
+            model_override = str(Path(__file__).resolve().parents[2] / 'models' / 'weights' / 'restormer_real_world.pth')
 
     if algorithm_name in ['nl-means', 'nlmeans']:
         return {
@@ -843,12 +851,14 @@ def build_algorithm_params(algorithm_name: str, args: argparse.Namespace) -> dic
             'base_channels': args.base_channels,
             'device': args.device,
             'show_architecture': args.show_architecture,
+            **({'model_path': model_override} if model_override is not None else {}),
         }
     if algorithm_name in ['restormer', 'restorer']:
         return {
             'base_channels': args.base_channels,
             'device': args.device,
             'show_architecture': args.show_architecture,
+            **({'model_path': model_override} if model_override is not None else {}),
         }
     else:  # BM3D and other algorithms
         return {'sigma_psd': args.sigma}
@@ -896,7 +906,7 @@ def main() -> int:
                 display_names: list[str] = []
                 for algo_name in algorithms_list:
                     algorithm_class = get_algorithm(algo_name)
-                    algorithm = algorithm_class(**build_algorithm_params(algo_name, args))
+                    algorithm = algorithm_class(**build_algorithm_params(algo_name, args, dataset_type))
                     display_names.append(algorithm.name)
 
                 output_dir = resolve_comparison_output_dir(
@@ -908,7 +918,7 @@ def main() -> int:
             else:
                 algorithm_name = algorithms_list[0]
                 algorithm_class = get_algorithm(algorithm_name)
-                algorithm = algorithm_class(**build_algorithm_params(algorithm_name, args))
+                algorithm = algorithm_class(**build_algorithm_params(algorithm_name, args, dataset_type))
                 output_dir = (
                     project_root
                     / 'results'
@@ -941,7 +951,7 @@ def main() -> int:
             algorithms = []
             for algo_name in algorithms_list:
                 algorithm_class = get_algorithm(algo_name)
-                algo_params = build_algorithm_params(algo_name, args)
+                algo_params = build_algorithm_params(algo_name, args, dataset_type)
                 algorithms.append(algorithm_class(**algo_params))
                 
             display_names = [algorithm.name for algorithm in algorithms]
@@ -1004,7 +1014,7 @@ def main() -> int:
             # Single algorithm mode
             algorithm_name = algorithms_list[0]
             algorithm_class = get_algorithm(algorithm_name)
-            algo_params = build_algorithm_params(algorithm_name, args)
+            algo_params = build_algorithm_params(algorithm_name, args, dataset_type)
             algorithm = algorithm_class(**algo_params)
             
             # Create evaluator
