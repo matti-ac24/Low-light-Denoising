@@ -72,6 +72,8 @@ Real-world paired images:
 python -m denoiser --real-world bm3d
 ```
 
+Note: the CLI default for `--real-world` is the prepared SIDD small test set at `data/SIDD_small_real_world/test`. See "Real-world evaluation and SIDD preparation" below for how to prepare or override this.
+
 ### Algorithm Parameters
 
 BM3D:
@@ -133,6 +135,8 @@ python -m denoiser --synthetic --compare bm3d nl-means resunet nafnet \
 - `--test` - Use built-in test images
 - `--synthetic` - Add synthetic noise to images from `./data/benchmark/clean/test`
 - `--real-world` - Use real-world noisy/clean pairs from `./data/demo_pair`
+ - `--real-world` - Use real-world noisy/clean pairs (default: `data/SIDD_small_real_world/test`).
+     To evaluate against a different prepared real-world test set (for example SIDD Medium prepared elsewhere), pass `--dataset-path /path/to/your/test`.
 
 ### Algorithm Selection
 
@@ -280,12 +284,50 @@ comparison = ComparisonEvaluator([bm3d, nlmeans, resunet, nafnet], loader, verbo
 results = comparison.evaluate_all()
 ```
 
+## Real-world evaluation and SIDD preparation
+
+This repository expects a prepared real‑world paired dataset layout with `clean/` and `noisy/` subdirectories. The provided helper script prepares SIDD Small into that layout:
+
+```bash
+python scripts/prepare_sidd_small_real_world.py  # writes to data/SIDD_small_real_world/test by default
+```
+
+What the script does:
+- Scans the SIDD Small scene folders for matching `GT_SRGB_*` and `NOISY_SRGB_*` images.
+- Copies paired files into `data/SIDD_small_real_world/test/clean` and `/noisy` and writes `manifest.csv`.
+
+Defaults and CLI behavior:
+- The CLI `--real-world` option uses the default path `data/SIDD_small_real_world/test` unless overridden with `--dataset-path`.
+- If you prepared SIDD Medium elsewhere (e.g., on Kaggle), run the CLI with `--dataset-path /path/to/sidd_medium_root/test` to evaluate on that dataset instead of SIDD Small.
+
+Using your Kaggle-trained checkpoints:
+- The denoiser constructors accept a `model_path` argument programmatically. Example:
+
+```python
+from denoiser.algorithms import NAFNetDenoiser
+from denoiser.datasets import get_dataset_loader
+from denoiser.evaluator import Evaluator
+
+algo = NAFNetDenoiser(model_path='/path/to/your/kaggle_checkpoint.pth', device='auto')
+loader = get_dataset_loader('real-world', dataset_path='data/SIDD_small_real_world/test')
+evaluator = Evaluator(algo, loader, verbose=True)
+results = evaluator.evaluate()
+```
+
+- Alternatively, copy your checkpoint into the repo weights folder and name it to match the CLI defaults so the CLI picks it automatically:
+    - `models/weights/nafnet_real_world.pth` for NAFNet (or `nafnet.pth` for non-real-world default)
+    - `models/weights/restormer_real_world.pth` for Restormer
+
+Training scripts note:
+- The training scripts detect paired real‑world data when `train/` and `test/` splits exist and set synthetic noise to zero during training (paired training uses `PairedPatchDataset`).
+
 ## Troubleshooting
 
 - `Module not found`: run commands from `src/` or set `PYTHONPATH=src`
 - `BM3D errors`: ensure `bm3d` is installed
 - `ResUNet errors`: ensure `./models/weights/resunet.pth` exists
-- `NAFNet errors`: ensure `./models/weights/nafnet.pth` exists
+ - `NAFNet errors`: ensure a checkpoint exists in `./models/weights/` (for real‑world evaluation the CLI looks for `nafnet_real_world.pth`; `nafnet.pth` is also supported).
+ - `Restormer errors`: ensure a checkpoint exists in `./models/weights/` (for real‑world evaluation the CLI looks for `restormer_real_world.pth`; `restormer.pth` is also supported).
 - `No images loaded`: verify the dataset paths and file extensions
 
 ## Adding New Algorithms

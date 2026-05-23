@@ -25,6 +25,10 @@ class Evaluator:
         dataset_loader: Any,
         verbose: bool = True,
         show_progress: bool = False,
+        stream_output_dir: Union[str, Path, None] = None,
+        stream_sigma: float | None = None,
+        stream_save_noisy_images: bool = False,
+        stream_split_image_dirs: bool = False,
     ) -> None:
 
         self.algorithm = algorithm
@@ -32,32 +36,65 @@ class Evaluator:
         self.verbose = verbose
         self.show_progress = show_progress
         self.results = []
+        self.stream_output_dir = Path(stream_output_dir) if stream_output_dir is not None else None
+        self.stream_sigma = stream_sigma
+        self.stream_save_noisy_images = stream_save_noisy_images
+        self.stream_split_image_dirs = stream_split_image_dirs
+
+    def _save_result_images_streaming(self, result: dict[str, Any]) -> None:
+
+        if self.stream_output_dir is None:
+            return
+
+        try:
+            from skimage import io
+
+            images_dir = self.stream_output_dir / 'images'
+            images_dir.mkdir(parents=True, exist_ok=True)
+
+            denoised_dir = images_dir / 'denoised' if self.stream_split_image_dirs else images_dir
+            noisy_dir = images_dir / 'noisy' if self.stream_split_image_dirs else images_dir
+            denoised_dir.mkdir(parents=True, exist_ok=True)
+            if self.stream_save_noisy_images:
+                noisy_dir.mkdir(parents=True, exist_ok=True)
+
+            sigma_suffix = self._format_sigma_suffix(self.stream_sigma)
+            denoised_path = denoised_dir / f"{result['name']}_denoised{sigma_suffix}.png"
+            denoised_uint8 = (np.clip(result['denoised'], 0, 1) * 255).astype(np.uint8)
+            io.imsave(denoised_path, denoised_uint8)
+
+            if self.stream_save_noisy_images:
+                noisy_path = noisy_dir / f"{result['name']}_noisy{sigma_suffix}.png"
+                noisy_uint8 = (np.clip(result['noisy'], 0, 1) * 255).astype(np.uint8)
+                io.imsave(noisy_path, noisy_uint8)
+        except Exception as e:
+            print(f"Warning: Could not stream-save image '{result.get('name', 'unknown')}': {e}")
     
     # Run evaluation on the dataset and return its results
     def evaluate(self) -> list[dict[str, Any]]:
 
         if self.verbose:
-            print(f"\n{'='*70}")
-            print(f"Denoising Evaluation")
-            print(f"{'='*70}")
-            print(f"Algorithm: {self.algorithm.name}")
-            print(f"Dataset Type: {self.dataset_loader.dataset_type}")
+            print(f"\n{'='*70}", flush=True)
+            print(f"Denoising Evaluation", flush=True)
+            print(f"{'='*70}", flush=True)
+            print(f"Algorithm: {self.algorithm.name}", flush=True)
+            print(f"Dataset Type: {self.dataset_loader.dataset_type}", flush=True)
             if self.dataset_loader.dataset_type == 'synthetic':
-                print(f"Noise Level (σ): {self.dataset_loader.noise_sigma:.3f}")
-            print(f"{'='*70}\n")
+                print(f"Noise Level (σ): {self.dataset_loader.noise_sigma:.3f}", flush=True)
+            print(f"{'='*70}\n", flush=True)
         
         # Load images
         if self.verbose:
-            print("Loading dataset...")
+            print("Loading dataset...", flush=True)
         
         images = self.dataset_loader.load_images()
         
         if not images:
-            print("Error: No images loaded!")
+            print("Error: No images loaded!", flush=True)
             return []
         
         if self.verbose:
-            print(f"Loaded {len(images)} image(s)\n")
+            print(f"Loaded {len(images)} image(s)\n", flush=True)
         
         # Process each image
         self.results = []
@@ -85,9 +122,17 @@ class Evaluator:
 
         for idx, image_data in iterable:
             if self.verbose:
-                print(f"[{idx}/{len(images)}] Processing: {image_data['name']}")
+                print(f"[{idx}/{len(images)}] Processing: {image_data['name']}", flush=True)
             
             result = self._process_image(image_data)
+
+            if self.stream_output_dir is not None:
+                self._save_result_images_streaming(result)
+                # Keep only lightweight metrics in memory to prevent OOM on large datasets.
+                result.pop('clean', None)
+                result.pop('noisy', None)
+                result.pop('denoised', None)
+
             self.results.append(result)
             
             if self.verbose:
@@ -96,14 +141,30 @@ class Evaluator:
         # Print summary
         if self.verbose and len(self.results) > 1:
             self._print_summary()
+
+        if self.stream_output_dir is not None:
+            # Persist CSV metrics after streaming image writes.
+            self.save_results(
+                self.stream_output_dir,
+                save_images=False,
+                sigma=self.stream_sigma,
+                save_noisy_images=self.stream_save_noisy_images,
+                split_image_dirs=self.stream_split_image_dirs,
+            )
         
         return self.results
     
     # Process a single image and return its metrics
     def _process_image(self, image_data: dict[str, Any]) -> dict[str, Any]:
 
-        clean = image_data['clean']
-        noisy = image_data['noisy']
+        if 'clean' in image_data and 'noisy' in image_data:
+            clean = image_data['clean']
+            noisy = image_data['noisy']
+        else:
+            from skimage import io, img_as_float
+
+            clean = img_as_float(io.imread(image_data['clean_path']))
+            noisy = img_as_float(io.imread(image_data['noisy_path']))
         name = image_data['name']
         
         # Measure denoising time
@@ -140,8 +201,8 @@ class Evaluator:
         
         # Improvement
         psnr_improvement = denoised_metrics['psnr'] - noisy_metrics['psnr']
-        print(f"  Improvement:     ΔPSNR={psnr_improvement:+.2f} dB")
-        print()
+        print(f"  Improvement:     ΔPSNR={psnr_improvement:+.2f} dB", flush=True)
+        print(flush=True)
     
     # Print summary statistics across all images
     def _print_summary(self) -> None:
@@ -158,19 +219,19 @@ class Evaluator:
         avg_denoised_psnr = np.mean([r['denoised_metrics']['psnr'] for r in self.results])
         avg_psnr_improvement = avg_denoised_psnr - avg_noisy_psnr
         
-        print(f"Images processed: {len(self.results)}")
-        print(f"Average processing time: {avg_time:.3f}s")
-        print(f"Average noisy PSNR: {avg_noisy_psnr:.2f} dB")
-        print(f"Average denoised PSNR: {avg_denoised_psnr:.2f} dB")
-        print(f"Average PSNR improvement: {avg_psnr_improvement:+.2f} dB")
+        print(f"Images processed: {len(self.results)}", flush=True)
+        print(f"Average processing time: {avg_time:.3f}s", flush=True)
+        print(f"Average noisy PSNR: {avg_noisy_psnr:.2f} dB", flush=True)
+        print(f"Average denoised PSNR: {avg_denoised_psnr:.2f} dB", flush=True)
+        print(f"Average PSNR improvement: {avg_psnr_improvement:+.2f} dB", flush=True)
         
         #SSIM
         avg_noisy_ssim = np.mean([r['noisy_metrics']['ssim'] for r in self.results])
         avg_denoised_ssim = np.mean([r['denoised_metrics']['ssim'] for r in self.results])
-        print(f"Average noisy SSIM: {avg_noisy_ssim:.4f}")
-        print(f"Average denoised SSIM: {avg_denoised_ssim:.4f}")
+        print(f"Average noisy SSIM: {avg_noisy_ssim:.4f}", flush=True)
+        print(f"Average denoised SSIM: {avg_denoised_ssim:.4f}", flush=True)
             
-        print(f"{'='*70}\n")
+        print(f"{'='*70}\n", flush=True)
     
     # Generate and save performance plots for the evaluation results
     def plot_results(self, output_dir: Union[str, Path], show_plot: bool = False, sigma: float | None = None) -> None:
@@ -415,54 +476,72 @@ class ComparisonEvaluator:
         plots_dir = output_dir / 'plots'
         plots_dir.mkdir(parents=True, exist_ok=True)
 
-        n_metrics = 2
-        _, axes = plt.subplots(1, n_metrics, figsize=(7 * n_metrics, 6))
+        _, axes = plt.subplots(1, 2, figsize=(14, 6))
 
-        x = np.arange(len(image_names))
-        width = 0.8 / (len(algorithm_names) + 1)  # +1 for noisy baseline
-        colors = plt.cm.Set2(np.linspace(0, 1, len(algorithm_names) + 1))
+        box_colors = plt.cm.Set2(np.linspace(0, 1, max(1, len(algorithm_names))))
 
-        noisy_psnr = noisy_metrics['psnr']
-        noisy_ssim = noisy_metrics['ssim']
-
-        # Plot PSNR comparison
+        # PSNR distribution boxplot
         ax = axes[0]
-        offset = -(len(algorithm_names)) * width / 2
-        ax.bar(x + offset, noisy_psnr, width, label='Noisy', alpha=0.7, color=colors[0])
-        offset += width
-
-        for idx, algo_name in enumerate(algorithm_names):
-            data = metrics_data[algo_name]
-            ax.bar(x + offset, data['psnr'], width, label=algo_name, alpha=0.8, color=colors[idx + 1])
-            offset += width
-
-        ax.set_xlabel('Image', fontsize=12)
+        psnr_data = [metrics_data[algo_name]['psnr'] for algo_name in algorithm_names]
+        psnr_plot = ax.boxplot(
+            psnr_data,
+            labels=algorithm_names,
+            patch_artist=True,
+            showmeans=True,
+            meanline=True,
+            medianprops={'color': '#2c3e50', 'linewidth': 1.8},
+            meanprops={'color': '#e74c3c', 'linewidth': 1.8},
+        )
+        for patch, color in zip(psnr_plot['boxes'], box_colors):
+            patch.set_facecolor(color)
+            patch.set_alpha(0.8)
         ax.set_ylabel('PSNR (dB)', fontsize=12)
-        ax.set_title('PSNR Comparison Across Algorithms', fontsize=13, fontweight='bold')
-        ax.set_xticks(x)
-        ax.set_xticklabels(image_names, rotation=45, ha='right')
-        ax.legend()
+        ax.set_title('PSNR Distribution by Algorithm', fontsize=13, fontweight='bold')
         ax.grid(axis='y', alpha=0.3)
 
-        # Plot SSIM comparison
+        # SSIM distribution boxplot
         ax = axes[1]
-        offset = -(len(algorithm_names)) * width / 2
-        ax.bar(x + offset, noisy_ssim, width, label='Noisy', alpha=0.7, color=colors[0])
-        offset += width
-
-        for idx, algo_name in enumerate(algorithm_names):
-            data = metrics_data[algo_name]
-            ax.bar(x + offset, data['ssim'], width, label=algo_name, alpha=0.8, color=colors[idx + 1])
-            offset += width
-
-        ax.set_xlabel('Image', fontsize=12)
+        ssim_data = [metrics_data[algo_name]['ssim'] for algo_name in algorithm_names]
+        ssim_plot = ax.boxplot(
+            ssim_data,
+            labels=algorithm_names,
+            patch_artist=True,
+            showmeans=True,
+            meanline=True,
+            medianprops={'color': '#2c3e50', 'linewidth': 1.8},
+            meanprops={'color': '#e74c3c', 'linewidth': 1.8},
+        )
+        for patch, color in zip(ssim_plot['boxes'], box_colors):
+            patch.set_facecolor(color)
+            patch.set_alpha(0.8)
         ax.set_ylabel('SSIM', fontsize=12)
-        ax.set_title('SSIM Comparison Across Algorithms', fontsize=13, fontweight='bold')
-        ax.set_xticks(x)
-        ax.set_xticklabels(image_names, rotation=45, ha='right')
-        ax.legend()
+        ax.set_title('SSIM Distribution by Algorithm', fontsize=13, fontweight='bold')
         ax.grid(axis='y', alpha=0.3)
         ax.set_ylim([0, 1])
+
+        if noisy_metrics.get('psnr'):
+            valid_noisy_psnr = [v for v in noisy_metrics['psnr'] if not np.isnan(v)]
+            if valid_noisy_psnr:
+                axes[0].axhline(
+                    np.median(valid_noisy_psnr),
+                    linestyle='--',
+                    linewidth=1.4,
+                    color='#7f8c8d',
+                    label='Noisy median',
+                )
+                axes[0].legend(loc='best')
+
+        if noisy_metrics.get('ssim'):
+            valid_noisy_ssim = [v for v in noisy_metrics['ssim'] if not np.isnan(v)]
+            if valid_noisy_ssim:
+                axes[1].axhline(
+                    np.median(valid_noisy_ssim),
+                    linestyle='--',
+                    linewidth=1.4,
+                    color='#7f8c8d',
+                    label='Noisy median',
+                )
+                axes[1].legend(loc='best')
 
         plt.tight_layout()
 

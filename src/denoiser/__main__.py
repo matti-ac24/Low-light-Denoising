@@ -12,7 +12,7 @@ from .evaluator import Evaluator, ComparisonEvaluator
 
 
 DEFAULT_SYNTHETIC_DATASET_REL_PATH = Path('data/benchmark/clean/test')
-DEFAULT_REAL_WORLD_DATASET_REL_PATH = Path('data/SIDD_patches/test')
+DEFAULT_REAL_WORLD_DATASET_REL_PATH = Path('data/SIDD_small_real_world/test')
 DEFAULT_COMPARISON_OUTPUT_REL_PATH = Path('results/compare')
 
 
@@ -46,6 +46,20 @@ def get_single_output_dir(project_root: Path, algorithm_display_name: str, datas
     )
 
 
+def get_comparison_cache_output_dir(
+    comparison_output_dir: Path,
+    algorithm_display_name: str,
+    dataset_type: str,
+) -> Path:
+
+    return (
+        comparison_output_dir
+        / 'cache'
+        / format_algorithm_for_path(algorithm_display_name)
+        / dataset_type
+    )
+
+
 def get_single_metrics_csv_path(
     project_root: Path,
     algorithm_display_name: str,
@@ -58,16 +72,38 @@ def get_single_metrics_csv_path(
     return output_dir / 'metrics' / f'metrics{sigma_suffix}.csv'
 
 
-def load_cached_single_results(metrics_csv_path: Path, image_names: list[str]) -> list[dict] | None:
+def get_artifact_sigma(dataset_type: str, sigma: float | None) -> float | None:
+
+    if dataset_type == 'synthetic':
+        return sigma
+    return None
+
+
+def load_cached_single_results(
+    metrics_csv_path: Path,
+    image_names: list[str],
+    comparison_cache_metrics_csv_path: Path | None = None,
+) -> list[dict] | None:
 
     import csv
 
-    if not metrics_csv_path.exists():
-        return None
+    candidate_paths = [metrics_csv_path]
+    if comparison_cache_metrics_csv_path is not None:
+        candidate_paths.append(comparison_cache_metrics_csv_path)
 
-    with open(metrics_csv_path, newline='') as f:
-        reader = csv.DictReader(f)
-        rows = list(reader)
+    rows: list[dict[str, str]] | None = None
+    for candidate_path in candidate_paths:
+        if not candidate_path.exists():
+            continue
+
+        with open(candidate_path, newline='') as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+        metrics_csv_path = candidate_path
+        break
+
+    if rows is None:
+        return None
 
     rows_by_image = {row['image']: row for row in rows if 'image' in row}
     if any(name not in rows_by_image for name in image_names):
@@ -159,27 +195,66 @@ def evaluate_or_reuse_algorithm_results(
     comparison_output_dir: Path | None = None,
 ) -> list[dict]:
 
+    def _to_metrics_only(results_list: list[dict]) -> list[dict]:
+        # Drop full image arrays from in-memory results to avoid OOM in comparison runs.
+        metrics_only: list[dict] = []
+        for item in results_list:
+            metrics_only.append(
+                {
+                    'name': item['name'],
+                    'processing_time': item['processing_time'],
+                    'noisy_metrics': item['noisy_metrics'],
+                    'denoised_metrics': item['denoised_metrics'],
+                }
+            )
+        return metrics_only
+
     images = dataset_loader.load_images()
     image_names = [item['name'] for item in images]
+    artifact_sigma = get_artifact_sigma(dataset_type, sigma)
+
+    comparison_cache_dir = None
+    if comparison_output_dir is not None:
+        comparison_cache_dir = get_comparison_cache_output_dir(
+            comparison_output_dir,
+            algorithm.name,
+            dataset_type,
+        )
 
     metrics_csv_path = get_single_metrics_csv_path(
         project_root,
         algorithm.name,
         dataset_type,
-        sigma,
+        artifact_sigma,
+    )
+    comparison_cache_metrics_csv_path = (
+        comparison_cache_dir / 'metrics' / f'metrics{format_sigma_suffix_for_metrics(artifact_sigma)}.csv'
+        if comparison_cache_dir is not None
+        else None
     )
 
-    cached_results = load_cached_single_results(metrics_csv_path, image_names)
+    cached_results = load_cached_single_results(
+        metrics_csv_path,
+        image_names,
+        comparison_cache_metrics_csv_path=comparison_cache_metrics_csv_path,
+    )
     if cached_results is not None:
         if args.verbose:
             print(f"Reusing cached metrics for {algorithm.name} from: {metrics_csv_path}")
-        mirror_single_results_to_comparison_dir(
-            single_output_dir=get_single_output_dir(project_root, algorithm.name, dataset_type),
-            comparison_output_dir=comparison_output_dir,
-            results=cached_results,
-            sigma=sigma,
-        )
-        return cached_results
+        if comparison_output_dir is not None:
+            mirror_single_results_to_comparison_dir(
+                single_output_dir=get_single_output_dir(project_root, algorithm.name, dataset_type),
+                comparison_output_dir=comparison_output_dir,
+                results=cached_results,
+                sigma=artifact_sigma,
+            )
+        return _to_metrics_only(cached_results)
+
+    stream_output_dir = (
+        comparison_cache_dir
+        if comparison_cache_dir is not None
+        else get_single_output_dir(project_root, algorithm.name, dataset_type)
+    )
 
     evaluator = Evaluator(
         algorithm=algorithm,
@@ -189,29 +264,26 @@ def evaluate_or_reuse_algorithm_results(
             not args.verbose
             and dataset_type in ['synthetic', 'real-world']
         ),
+        stream_output_dir=stream_output_dir,
+        stream_sigma=artifact_sigma,
+        stream_save_noisy_images=(dataset_type in ['test', 'synthetic']),
+        stream_split_image_dirs=(dataset_type in ['test', 'synthetic']),
     )
     results = evaluator.evaluate()
 
-    single_output_dir = get_single_output_dir(project_root, algorithm.name, dataset_type)
-    save_noisy_images = dataset_type in ['test', 'synthetic']
-    evaluator.save_results(
-        single_output_dir,
-        save_images=True,
-        sigma=sigma,
-        save_noisy_images=save_noisy_images,
-        split_image_dirs=save_noisy_images,
-    )
-    mirror_single_results_to_comparison_dir(
-        single_output_dir=single_output_dir,
-        comparison_output_dir=comparison_output_dir,
-        results=results,
-        sigma=sigma,
-    )
+    if comparison_output_dir is not None:
+        single_output_dir = get_single_output_dir(project_root, algorithm.name, dataset_type)
+        mirror_single_results_to_comparison_dir(
+            single_output_dir=single_output_dir,
+            comparison_output_dir=comparison_output_dir,
+            results=results,
+            sigma=artifact_sigma,
+        )
 
     if args.verbose:
         print(f"Cached single-mode results for {algorithm.name} at: {single_output_dir}")
 
-    return results
+    return _to_metrics_only(results)
 
 
 def build_comparison_folder_name(algorithm_names: list[str]) -> str:
@@ -240,9 +312,10 @@ def _create_representative_comparison_image(
     comparison_dir: Path,
     dataset_loader: object,
     algorithm_names: list[str],
-    patch_size: int | None = 128,
+    patch_size: int | None = 192,
     verbose: bool = False,
     preferred_sigma: float | None = None,
+    rep_seed: int = 42,
 ) -> None:
     """Create and save a representative side-by-side patch image for comparison."""
     try:
@@ -251,6 +324,17 @@ def _create_representative_comparison_image(
         from skimage import io, img_as_float
     except Exception:
         return
+
+    def _normalize_image_name(value: str) -> str:
+        return Path(value).stem
+
+    def _extract_dataset_name(value: str) -> str:
+        stem = _normalize_image_name(value)
+        base = stem.split('__', 1)[0]
+        parts = base.rsplit('_', 1)
+        if len(parts) == 2 and parts[1].isdigit():
+            return parts[0]
+        return base
 
     dataset_type = dataset_loader.dataset_type
     if verbose:
@@ -285,7 +369,7 @@ def _create_representative_comparison_image(
         for p in candidate_files:
             stem = p.name
             if '_denoised' in stem:
-                names.add(stem.split('_denoised')[0])
+                names.add(_extract_dataset_name(stem.split('_denoised')[0]))
         per_algo_image_sets[algo] = names
         if verbose and names:
             print(f"  Found {len(names)} images for {algo}")
@@ -301,12 +385,12 @@ def _create_representative_comparison_image(
     chosen_name = None
     if common_names:
         sorted_names = sorted(common_names)
-        rng = np.random.RandomState(42)
+        rng = np.random.RandomState(rep_seed)
         chosen_name = sorted_names[int(rng.randint(0, len(sorted_names)))]
     elif images_list:
-        rng = np.random.RandomState(42)
+        rng = np.random.RandomState(rep_seed)
         chosen = images_list[int(rng.randint(0, len(images_list)))]
-        chosen_name = chosen['name']
+        chosen_name = _extract_dataset_name(chosen['name'])
 
     if not chosen_name:
         if verbose:
@@ -319,11 +403,18 @@ def _create_representative_comparison_image(
     # Load clean and noisy
     clean = None
     noisy = None
-    for item in images_list:
-        if item['name'] == chosen_name:
-            clean = img_as_float(item['clean'])
-            noisy = img_as_float(item['noisy'])
-            break
+    pair_by_name = {
+        _extract_dataset_name(item['name']): item
+        for item in images_list
+    }
+    selected_item = pair_by_name.get(chosen_name)
+    if selected_item is not None:
+        if 'clean' in selected_item and 'noisy' in selected_item:
+            clean = img_as_float(selected_item['clean'])
+            noisy = img_as_float(selected_item['noisy'])
+        else:
+            clean = img_as_float(io.imread(str(selected_item['clean_path'])))
+            noisy = img_as_float(io.imread(str(selected_item['noisy_path'])))
 
     if clean is None or noisy is None:
         if verbose:
@@ -346,12 +437,12 @@ def _create_representative_comparison_image(
         found = None
         for base in paths_to_search:
             if sigma_suffix:
-                for p in base.rglob(f"{chosen_name}_denoised{sigma_suffix}.png"):
+                for p in base.rglob(f"{chosen_name}__*_denoised{sigma_suffix}.png"):
                     found = p
                     break
             if found:
                 break
-            for p in base.rglob(f"{chosen_name}_denoised*.png"):
+            for p in base.rglob(f"{chosen_name}__*_denoised*.png"):
                 found = p
                 break
             if found:
@@ -733,7 +824,7 @@ Examples:
     dataset_group.add_argument(
         '--real-world',
         action='store_true',
-        help='Use real-world paired dataset from ./data/demo_pair (clean/noisy pairs)'
+        help='Use real-world paired dataset from ./data/SIDD_small_real_world/test (clean/noisy pairs)'
     )
     
     # Comparison mode
@@ -764,6 +855,13 @@ Examples:
         type=str,
         default=None,
         help='Sigma range as start,end,step (e.g. 0.05,0.2,0.05)'
+    )
+
+    parser.add_argument(
+        '--dataset-path',
+        type=str,
+        default=None,
+        help='Override the dataset root path for --synthetic or --real-world runs'
     )
 
     # Algorithm parameters
@@ -820,6 +918,19 @@ Examples:
         action='store_true',
         help='Show detailed verbose output'
     )
+
+    parser.add_argument(
+        '--rep-only',
+        action='store_true',
+        help='Only rebuild the representative comparison image from already saved outputs.',
+    )
+
+    parser.add_argument(
+        '--rep-seed',
+        type=int,
+        default=42,
+        help='Seed used to select the representative image when rebuilding from cached outputs.',
+    )
     
     return parser.parse_args()
 
@@ -834,6 +945,11 @@ def build_algorithm_params(algorithm_name: str, args: argparse.Namespace, datase
         if algorithm_name in ['restormer', 'restorer']:
             model_override = str(Path(__file__).resolve().parents[2] / 'models' / 'weights' / 'restormer_real_world.pth')
 
+    runtime_device = args.device
+    if dataset_type == 'real-world' and args.device == 'auto':
+        # Keep auto selection so Kaggle T4 can use CUDA when available.
+        runtime_device = 'auto'
+
     if algorithm_name in ['nl-means', 'nlmeans']:
         return {
             'patch_size': args.patch_size,
@@ -843,20 +959,20 @@ def build_algorithm_params(algorithm_name: str, args: argparse.Namespace, datase
     if algorithm_name in ['resunet', 'res-unet', 'residual-unet']:
         return {
             'base_channels': args.base_channels,
-            'device': args.device,
+            'device': runtime_device,
             'show_architecture': args.show_architecture,
         }
     if algorithm_name == 'nafnet':
         return {
             'base_channels': args.base_channels,
-            'device': args.device,
+            'device': runtime_device,
             'show_architecture': args.show_architecture,
             **({'model_path': model_override} if model_override is not None else {}),
         }
     if algorithm_name in ['restormer', 'restorer']:
         return {
             'base_channels': args.base_channels,
-            'device': args.device,
+            'device': runtime_device,
             'show_architecture': args.show_architecture,
             **({'model_path': model_override} if model_override is not None else {}),
         }
@@ -883,8 +999,10 @@ def main() -> int:
     synthetic_dataset_path = project_root / DEFAULT_SYNTHETIC_DATASET_REL_PATH
     real_world_dataset_path = project_root / DEFAULT_REAL_WORLD_DATASET_REL_PATH
 
-    if dataset_type == 'synthetic':
-        dataset_path: str | None = str(synthetic_dataset_path)
+    if args.dataset_path:
+        dataset_path: str | None = args.dataset_path
+    elif dataset_type == 'synthetic':
+        dataset_path = str(synthetic_dataset_path)
     elif dataset_type == 'real-world':
         dataset_path = str(real_world_dataset_path)
     else:
@@ -947,14 +1065,8 @@ def main() -> int:
         )
         
         if is_comparison:
-            # Comparison mode: multiple algorithms
-            algorithms = []
-            for algo_name in algorithms_list:
-                algorithm_class = get_algorithm(algo_name)
-                algo_params = build_algorithm_params(algo_name, args, dataset_type)
-                algorithms.append(algorithm_class(**algo_params))
-                
-            display_names = [algorithm.name for algorithm in algorithms]
+            # Comparison mode: evaluate algorithms sequentially to reduce peak memory.
+            display_names = [format_algorithm_for_path(name) for name in algorithms_list]
             output_dir = resolve_comparison_output_dir(
                 project_root,
                 args.output,
@@ -962,8 +1074,30 @@ def main() -> int:
                 display_names,
             )
 
+            if args.rep_only:
+                try:
+                    algo_names = [
+                        get_algorithm(algo_name).__name__.replace('Denoiser', '')
+                        for algo_name in algorithms_list
+                    ]
+                    _create_representative_comparison_image(
+                        comparison_dir=output_dir,
+                        dataset_loader=dataset_loader,
+                        algorithm_names=algo_names,
+                        verbose=args.verbose,
+                        rep_seed=args.rep_seed,
+                    )
+                    print(f"\nRepresentative image saved to: {output_dir / 'images'}")
+                except Exception as e:
+                    if args.verbose:
+                        print(f"  Error creating representative image: {e}")
+                return 0
+
             all_results: dict[str, list[dict]] = {}
-            for algorithm in algorithms:
+            for algo_name in algorithms_list:
+                algorithm_class = get_algorithm(algo_name)
+                algo_params = build_algorithm_params(algo_name, args, dataset_type)
+                algorithm = algorithm_class(**algo_params)
                 all_results[algorithm.name] = evaluate_or_reuse_algorithm_results(
                     algorithm=algorithm,
                     dataset_loader=dataset_loader,
@@ -974,20 +1108,28 @@ def main() -> int:
                     comparison_output_dir=output_dir,
                 )
 
+                # Best-effort cleanup between heavyweight models.
+                try:
+                    import gc
+
+                    gc.collect()
+                    try:
+                        import torch
+
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+
             comparison_evaluator = ComparisonEvaluator(
-                algorithms=algorithms,
+                algorithms=[],
                 dataset_loader=dataset_loader,
                 verbose=args.verbose,
             )
             comparison_evaluator.all_results = all_results
-            
-            display_names = [algorithm.name for algorithm in algorithms]
-            output_dir = resolve_comparison_output_dir(
-                project_root,
-                args.output,
-                dataset_type,
-                display_names,
-            )
+
             comparison_evaluator.save_comparison_summary(output_dir)
             comparison_evaluator.plot_comparison_from_csv(
                 output_dir / 'metrics' / 'comparison_summary.csv',
@@ -997,12 +1139,13 @@ def main() -> int:
             
             # Create representative image
             try:
-                algo_names = [algorithm.name for algorithm in algorithms]
+                algo_names = list(all_results.keys())
                 _create_representative_comparison_image(
                     comparison_dir=output_dir,
                     dataset_loader=dataset_loader,
                     algorithm_names=algo_names,
                     verbose=args.verbose,
+                    rep_seed=args.rep_seed,
                 )
             except Exception as e:
                 if args.verbose:
@@ -1046,7 +1189,7 @@ def main() -> int:
             evaluator.save_results(
                 output_dir,
                 save_images=True,
-                sigma=args.sigma,
+                sigma=get_artifact_sigma(dataset_type, args.sigma),
                 save_noisy_images=save_noisy_images,
                 split_image_dirs=save_noisy_images,
             )

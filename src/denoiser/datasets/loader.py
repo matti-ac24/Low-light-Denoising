@@ -148,12 +148,9 @@ class DatasetLoader:
                 continue
             
             try:
-                clean = img_as_float(io.imread(clean_path))
-                noisy = img_as_float(io.imread(noisy_path))
-                
                 images.append({
-                    'clean': clean,
-                    'noisy': noisy,
+                    'clean_path': clean_path,
+                    'noisy_path': noisy_path,
                     'name': clean_path.stem
                 })
             except Exception as e:
