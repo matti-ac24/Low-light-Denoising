@@ -360,8 +360,8 @@ def main() -> int:
         print(f'Validation split: {test_split_dir}')
         print(f'Found {len(train_dataset.pairs)} paired training image(s)')
         print(f'Found {len(val_dataset.pairs)} paired validation image(s)')
-        train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=0)
-        val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=0)
+        train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=2)
+        val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=2)
     else:
         image_paths = sorted([
             path
@@ -386,7 +386,7 @@ def main() -> int:
             sigma_max=sigma_max,
             channels=args.channels,
         )
-        train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=0)
+        train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=2)
         val_loader = None
 
     model = _build_restormer(
