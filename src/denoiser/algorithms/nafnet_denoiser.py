@@ -295,17 +295,51 @@ class NAFNetDenoiser(BaseDenoiser):
                     f"Unsupported channel conversion from {channels} to {model_channels}"
                 )
 
-        _, _, height, width = tensor.shape
-        pad_h = (4 - (height % 4)) % 4
-        pad_w = (4 - (width % 4)) % 4
-        if pad_h > 0 or pad_w > 0:
-            tensor = F.pad(tensor, (0, pad_w, 0, pad_h), mode='reflect')
+        # Ensures the input height/width are multiples of 8 by reflect-padding the right/bottom edges
+        def _forward_with_padding(input_tensor: torch.Tensor) -> torch.Tensor:
+            _, _, in_h, in_w = input_tensor.shape
+            pad_h = (4 - (in_h % 4)) % 4
+            pad_w = (4 - (in_w % 4)) % 4
+            if pad_h > 0 or pad_w > 0:
+                input_tensor = F.pad(input_tensor, (0, pad_w, 0, pad_h), mode='reflect')
+
+            pred = model(input_tensor)
+            if pad_h > 0 or pad_w > 0:
+                pred = pred[:, :, :in_h, :in_w]
+            return pred
+
+        # Breaks large images into overlapping tiles to fit GPU memory and blends overlaps
+        def _tiled_inference(input_tensor: torch.Tensor, tile_size: int = 512, overlap: int = 32) -> torch.Tensor:
+            _, _, full_h, full_w = input_tensor.shape
+            if full_h <= tile_size and full_w <= tile_size:
+                return _forward_with_padding(input_tensor)
+
+            stride = max(1, tile_size - overlap)
+            ys = list(range(0, max(full_h - tile_size, 0) + 1, stride))
+            xs = list(range(0, max(full_w - tile_size, 0) + 1, stride))
+
+            last_y = max(full_h - tile_size, 0)
+            last_x = max(full_w - tile_size, 0)
+            if not ys or ys[-1] != last_y:
+                ys.append(last_y)
+            if not xs or xs[-1] != last_x:
+                xs.append(last_x)
+
+            output = torch.zeros_like(input_tensor)
+            weight = torch.zeros_like(input_tensor)
+
+            for y in ys:
+                for x in xs:
+                    tile = input_tensor[:, :, y:y + tile_size, x:x + tile_size]
+                    pred = _forward_with_padding(tile)
+                    tile_h, tile_w = tile.shape[-2:]
+                    output[:, :, y:y + tile_h, x:x + tile_w] += pred
+                    weight[:, :, y:y + tile_h, x:x + tile_w] += 1.0
+
+            return output / weight.clamp_min(1e-6)
 
         with torch.no_grad():
-            output = model(tensor)
-
-        if pad_h > 0 or pad_w > 0:
-            output = output[:, :, :height, :width]
+            output = _tiled_inference(tensor)
 
         if channels != model_channels:
             if channels == 1 and model_channels == 3:
