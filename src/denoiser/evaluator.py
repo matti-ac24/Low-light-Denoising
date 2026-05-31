@@ -13,6 +13,7 @@ class Evaluator:
 
     @staticmethod
     def _format_sigma_suffix(sigma: float | None) -> str:
+        """Format the sigma value for filenames and directories."""
         if sigma is None:
             return ''
         formatted = f"{sigma:.4f}".rstrip('0').rstrip('.').replace('.', 'p')
@@ -31,6 +32,7 @@ class Evaluator:
         stream_split_image_dirs: bool = False,
     ) -> None:
 
+        """Initialize the object with the provided settings."""
         self.algorithm = algorithm
         self.dataset_loader = dataset_loader
         self.verbose = verbose
@@ -43,6 +45,7 @@ class Evaluator:
 
     def _save_result_images_streaming(self, result: dict[str, Any]) -> None:
 
+        """Save the current image outputs as they are produced."""
         if self.stream_output_dir is None:
             return
 
@@ -73,6 +76,7 @@ class Evaluator:
     # Run evaluation on the dataset and return its results
     def evaluate(self) -> list[dict[str, Any]]:
 
+        """Evaluate the model or results using the provided inputs."""
         if self.verbose:
             print(f"\n{'='*70}", flush=True)
             print(f"Denoising Evaluation", flush=True)
@@ -157,6 +161,7 @@ class Evaluator:
     # Process a single image and return its metrics
     def _process_image(self, image_data: dict[str, Any]) -> dict[str, Any]:
 
+        """Process a single image through the denoiser pipeline."""
         if 'clean' in image_data and 'noisy' in image_data:
             clean = image_data['clean']
             noisy = image_data['noisy']
@@ -189,6 +194,7 @@ class Evaluator:
     # Print results for a single image
     def _print_result(self, result: dict[str, Any]) -> None:
 
+        """Print a single image result summary."""
         print(f"  Processing time: {result['processing_time']:.3f}s")
         
         # Noisy image metrics
@@ -207,6 +213,7 @@ class Evaluator:
     # Print summary statistics across all images
     def _print_summary(self) -> None:
 
+        """Print the aggregated evaluation summary."""
         print(f"\n{'='*70}")
         print("SUMMARY STATISTICS")
         print(f"{'='*70}")
@@ -236,6 +243,7 @@ class Evaluator:
     # Generate and save performance plots for the evaluation results
     def plot_results(self, output_dir: Union[str, Path], show_plot: bool = False, sigma: float | None = None) -> None:
 
+        """Plot the evaluation results for a single algorithm."""
         if not self.results:
             print("Warning: No results to plot!")
             return
@@ -308,6 +316,7 @@ class Evaluator:
         split_image_dirs: bool = False,
     ) -> None:
 
+        """Save the evaluation results and derived artifacts."""
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         metrics_dir = output_dir / 'metrics'
@@ -379,6 +388,7 @@ class ComparisonEvaluator:
     # Initialise comparison evaluator with multiple algorithms and dataset loader
     def __init__(self, algorithms: list[Any], dataset_loader: Any, verbose: bool = True) -> None:
 
+        """Initialize the object with the provided settings."""
         self.algorithms = algorithms
         self.dataset_loader = dataset_loader
         self.verbose = verbose
@@ -387,6 +397,7 @@ class ComparisonEvaluator:
     # Run evaluation for all algorithms and return combined results
     def evaluate_all(self) -> dict[str, list[dict[str, Any]]]:
 
+        """Evaluate every configured algorithm on the dataset."""
         if self.verbose:
             print(f"\n{'='*70}")
             print(f"Alogrithm Comparison")
@@ -407,6 +418,7 @@ class ComparisonEvaluator:
 
     @staticmethod
     def _load_comparison_summary_csv(csv_path: Union[str, Path]) -> dict[str, Any]:
+        """Load a saved comparison summary from CSV."""
         import csv
 
         csv_path = Path(csv_path)
@@ -471,6 +483,7 @@ class ComparisonEvaluator:
         show_plot: bool = False,
     ) -> None:
 
+        """Plot comparison metrics from in-memory data."""
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         plots_dir = output_dir / 'plots'
@@ -560,6 +573,7 @@ class ComparisonEvaluator:
     # Generate comparison plots for all algorithms
     def plot_comparison(self, output_dir: Union[str, Path], show_plot: bool = False) -> None:
 
+        """Plot the comparison results for the configured algorithms."""
         if not self.all_results:
             print("Warning: No results to plot!")
             return
@@ -595,6 +609,7 @@ class ComparisonEvaluator:
         show_plot: bool = False,
     ) -> None:
 
+        """Plot the comparison results from a CSV summary."""
         data = self._load_comparison_summary_csv(summary_csv_path)
         self._plot_comparison_from_data(
             image_names=data['image_names'],
@@ -608,6 +623,7 @@ class ComparisonEvaluator:
     # Save a comparison summary CSV with all algorithms' metrics
     def save_comparison_summary(self, output_dir: Union[str, Path]) -> None:
 
+        """Save the comparison summary to disk."""
         if not self.all_results:
             print("Warning: No results to save!")
             return

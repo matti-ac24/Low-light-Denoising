@@ -11,11 +11,13 @@ from .base import BaseDenoiser
 
 
 def _build_resunet(in_channels: int, base_channels: int):
+    """Build the ResUNet model used by the denoiser wrapper."""
     import torch
     import torch.nn as nn
 
     class _ResidualBlock(nn.Module):
         def __init__(self, channels: int) -> None:
+            """Initialize the object with the provided settings."""
             super().__init__()
 
             self.block = nn.Sequential(
@@ -26,11 +28,13 @@ def _build_resunet(in_channels: int, base_channels: int):
             self.relu = nn.ReLU(inplace=True)
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
+            """Run the forward pass for this block."""
             return self.relu(x + self.block(x))
 
 
     class _DoubleConv(nn.Module):
         def __init__(self, in_channels: int, out_channels: int) -> None:
+            """Initialize the object with the provided settings."""
             super().__init__()
 
             self.block = nn.Sequential(
@@ -41,10 +45,12 @@ def _build_resunet(in_channels: int, base_channels: int):
             )
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
+            """Run the forward pass for this block."""
             return self.block(x)
 
     class ResidualUNet(nn.Module):
         def __init__(self, channels: int, features: int) -> None:
+            """Initialize the object with the provided settings."""
             super().__init__()
 
             self.enc1 = _DoubleConv(channels, features)
@@ -66,6 +72,7 @@ def _build_resunet(in_channels: int, base_channels: int):
             self.out_conv = nn.Conv2d(features, channels, kernel_size=1)
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
+            """Run the forward pass for this block."""
             e1 = self.res1(self.enc1(x))
             e2 = self.res2(self.enc2(self.pool1(e1)))
             b = self.bottleneck(self.pool2(e2))
@@ -92,6 +99,7 @@ class ResUNetDenoiser(BaseDenoiser):
         device: str = 'auto',
         show_architecture: bool = False,
     ) -> None:
+        """Initialize the object with the provided settings."""
         model_path = Path(__file__).resolve().parents[3] / 'models' / 'weights' / 'resunet.pth'
         super().__init__(
             model_path=str(model_path),
@@ -110,6 +118,7 @@ class ResUNetDenoiser(BaseDenoiser):
 
     # Infer expected channel count directly from checkpoint tensors
     def _infer_checkpoint_channels(self, state_dict: dict) -> int:
+        """Infer the channel count from a checkpoint state dict."""
         enc1_key = 'enc1.block.0.weight'
         out_key = 'out_conv.weight'
 
@@ -131,6 +140,7 @@ class ResUNetDenoiser(BaseDenoiser):
 
     # Resolve runtime device
     def _resolve_device(self):
+        """Resolve the best available device for inference."""
         import torch
 
         if self.device != 'auto':
@@ -143,6 +153,7 @@ class ResUNetDenoiser(BaseDenoiser):
 
     # Load model weights once for a given number of channels
     def _load_model(self, channels: int):
+        """Load the model checkpoint and move it to the target device."""
         import torch
 
         if self._model is not None and self._model_channels == channels:
@@ -183,6 +194,7 @@ class ResUNetDenoiser(BaseDenoiser):
 
     # Denoise an image using a pretrained Residual U-Net model
     def denoise(self, noisy_image: np.ndarray) -> np.ndarray:
+        """Denoise the provided image and return the result."""
         import torch
         import torch.nn.functional as F
 

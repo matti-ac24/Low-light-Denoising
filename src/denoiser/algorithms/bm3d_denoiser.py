@@ -10,6 +10,7 @@ class BM3DDenoiser(BaseDenoiser):
     # Initialise the BM3D denoiser with noise level and processing stage
     def __init__(self, sigma_psd: float = 0.1, stage_arg: BM3DStages = BM3DStages.ALL_STAGES) -> None:
 
+        """Initialize the object with the provided settings."""
         super().__init__(sigma_psd=sigma_psd, stage_arg=stage_arg)
         self.sigma_psd = sigma_psd
         self.stage_arg = stage_arg
@@ -18,6 +19,7 @@ class BM3DDenoiser(BaseDenoiser):
     def denoise(self, noisy_image: np.ndarray) -> np.ndarray:
 
         # BM3D expects images in float format [0, 1]
+        """Denoise the provided image and return the result."""
         if noisy_image.dtype != np.float32 and noisy_image.dtype != np.float64:
             noisy_image = noisy_image.astype(np.float64)
         

@@ -25,6 +25,7 @@ SUPPORTED_EXTS = {'.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff'}
 
 
 def _load_image(image_path: Path, channels: int) -> np.ndarray:
+    """Load an image from disk and convert it to the expected layout."""
     image = img_as_float(io.imread(image_path)).astype(np.float32)
 
     if channels == 1:
@@ -45,6 +46,7 @@ def _load_image(image_path: Path, channels: int) -> np.ndarray:
 
 
 def _collect_paired_images(split_dir: Path) -> list[tuple[Path, Path]]:
+    """Collect matching NOISY/GT image pairs from the split directory."""
     noisy_files: dict[str, Path] = {}
     gt_files: dict[str, Path] = {}
 
@@ -81,6 +83,7 @@ class NoisyPatchDataset(Dataset):
         sigma_max: float,
         channels: int,
     ) -> None:
+        """Initialize the NoisyPatchDataset."""
         self.image_paths = image_paths
         self.patch_size = patch_size
         self.patches_per_image = patches_per_image
@@ -92,12 +95,15 @@ class NoisyPatchDataset(Dataset):
         self._image_cache: dict[int, np.ndarray] = {}
 
     def _load_image(self, image_path: Path) -> np.ndarray:
+        """Load an image from disk and convert it to the expected layout."""
         return _load_image(image_path, self.channels)
 
     def __len__(self) -> int:
+        """Return the number of available items."""
         return len(self.image_paths) * self.patches_per_image
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return a noisy synthetic patch and its clean target."""
         image_idx = index % len(self.image_paths)
         if image_idx not in self._image_cache:
             # load and cache
@@ -144,6 +150,7 @@ class PairedPatchDataset(Dataset):
         channels: int,
         random_crop: bool = True,
     ) -> None:
+        """Initialize the PairedPatchDataset."""
         self.split_dir = split_dir
         self.patch_size = patch_size
         self.patches_per_image = patches_per_image
@@ -155,9 +162,11 @@ class PairedPatchDataset(Dataset):
             raise ValueError(f'No paired NOISY/GT images found in: {split_dir}')
 
     def __len__(self) -> int:
+        """Return the number of available items."""
         return len(self.pairs) * self.patches_per_image
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return a paired noisy/clean patch for the given index."""
         noisy_path, gt_path = self.pairs[index % len(self.pairs)]
         noisy = _load_image(noisy_path, self.channels)
         clean = _load_image(gt_path, self.channels)
@@ -185,6 +194,7 @@ class PairedPatchDataset(Dataset):
 
 
 def resolve_device(device_arg: str) -> torch.device:
+    """Resolve the requested compute device."""
     if device_arg != 'auto':
         return torch.device(device_arg)
     if torch.cuda.is_available():
@@ -193,6 +203,7 @@ def resolve_device(device_arg: str) -> torch.device:
 
 
 def resolve_sigma_range(args: argparse.Namespace) -> tuple[float, float]:
+    """Resolve the sigma range used for training."""
     if args.sigma is not None:
         if args.sigma < 0 or args.sigma > 1:
             raise ValueError('--sigma must be in [0, 1]')
@@ -214,6 +225,7 @@ def resolve_sigma_range(args: argparse.Namespace) -> tuple[float, float]:
 
 
 def parse_int_tuple(value: str, expected_len: int, flag_name: str) -> tuple[int, ...]:
+    """Parse the provided input values."""
     parts = [item.strip() for item in value.split(',') if item.strip()]
     if len(parts) != expected_len:
         raise ValueError(f'{flag_name} must contain exactly {expected_len} comma-separated integers')
@@ -225,6 +237,7 @@ def parse_int_tuple(value: str, expected_len: int, flag_name: str) -> tuple[int,
 
 
 def describe_model(model: torch.nn.Module, channels: int, patch_size: int, device: torch.device) -> str:
+    """Build a human-readable summary of the model."""
     total_params = sum(parameter.numel() for parameter in model.parameters())
     trainable_params = sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad)
     leaf_layers = sum(1 for module in model.modules() if len(list(module.children())) == 0)
@@ -248,6 +261,7 @@ def describe_model(model: torch.nn.Module, channels: int, patch_size: int, devic
 
 
 def evaluate_loss(model: torch.nn.Module, dataloader: DataLoader, criterion: torch.nn.Module, device: torch.device) -> float:
+    """Compute the mean loss over the validation loader."""
     model.eval()
     total_loss = 0.0
 
@@ -262,6 +276,7 @@ def evaluate_loss(model: torch.nn.Module, dataloader: DataLoader, criterion: tor
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description='Train Restormer denoiser')
 
     parser.add_argument('--dataset-path', type=str, required=True, help='Path to clean images folder')
@@ -316,6 +331,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    """Run the script entry point."""
     args = parse_args()
 
     random.seed(args.seed)

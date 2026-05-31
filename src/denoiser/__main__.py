@@ -18,17 +18,20 @@ DEFAULT_COMPARISON_OUTPUT_REL_PATH = Path('results/compare')
 
 def format_sigma_for_path(sigma: float) -> str:
 
+    """Perform the format sigma for path step."""
     formatted = f"{sigma:.4f}".rstrip('0').rstrip('.')
     return formatted.replace('.', 'p')
 
 
 def format_algorithm_for_path(name: str) -> str:
 
+    """Perform the format algorithm for path step."""
     return name.strip().lower().replace(' ', '-').replace('_', '-')
 
 
 def format_sigma_suffix_for_metrics(sigma: float | None) -> str:
 
+    """Perform the format sigma suffix for metrics step."""
     if sigma is None:
         return ''
     formatted = f"{sigma:.4f}".rstrip('0').rstrip('.').replace('.', 'p')
@@ -37,6 +40,7 @@ def format_sigma_suffix_for_metrics(sigma: float | None) -> str:
 
 def get_single_output_dir(project_root: Path, algorithm_display_name: str, dataset_type: str) -> Path:
 
+    """Perform the get single output dir step."""
     return (
         project_root
         / 'results'
@@ -52,6 +56,7 @@ def get_comparison_cache_output_dir(
     dataset_type: str,
 ) -> Path:
 
+    """Perform the get comparison cache output dir step."""
     return (
         comparison_output_dir
         / 'cache'
@@ -67,6 +72,7 @@ def get_single_metrics_csv_path(
     sigma: float | None,
 ) -> Path:
 
+    """Perform the get single metrics csv path step."""
     output_dir = get_single_output_dir(project_root, algorithm_display_name, dataset_type)
     sigma_suffix = format_sigma_suffix_for_metrics(sigma)
     return output_dir / 'metrics' / f'metrics{sigma_suffix}.csv'
@@ -74,6 +80,7 @@ def get_single_metrics_csv_path(
 
 def get_artifact_sigma(dataset_type: str, sigma: float | None) -> float | None:
 
+    """Perform the get artifact sigma step."""
     if dataset_type == 'synthetic':
         return sigma
     return None
@@ -85,6 +92,7 @@ def load_cached_single_results(
     comparison_cache_metrics_csv_path: Path | None = None,
 ) -> list[dict] | None:
 
+    """Load cached single-image denoising results from disk."""
     import csv
 
     candidate_paths = [metrics_csv_path]
@@ -132,6 +140,7 @@ def load_cached_single_results(
 
 def write_results_metrics_csv(results: list[dict], metrics_csv_path: Path) -> None:
 
+    """Write denoising metrics to a CSV file."""
     metrics_csv_path.parent.mkdir(parents=True, exist_ok=True)
     with open(metrics_csv_path, 'w', newline='') as f:
         fieldnames = [
@@ -167,6 +176,7 @@ def mirror_single_results_to_comparison_dir(
     sigma: float | None,
 ) -> None:
 
+    """Copy single-run outputs into the comparison cache."""
     if comparison_output_dir is None:
         return
 
@@ -195,8 +205,10 @@ def evaluate_or_reuse_algorithm_results(
     comparison_output_dir: Path | None = None,
 ) -> list[dict]:
 
+    """Evaluate an algorithm or reuse cached results."""
     def _to_metrics_only(results_list: list[dict]) -> list[dict]:
         # Drop full image arrays from in-memory results to avoid OOM in comparison runs.
+        """Keep only metric fields from a results list."""
         metrics_only: list[dict] = []
         for item in results_list:
             metrics_only.append(
@@ -288,6 +300,7 @@ def evaluate_or_reuse_algorithm_results(
 
 def build_comparison_folder_name(algorithm_names: list[str]) -> str:
 
+    """Build a comparison directory name from algorithm names."""
     normalized = sorted(format_algorithm_for_path(name) for name in algorithm_names)
     return '_vs_'.join(normalized)
 
@@ -299,6 +312,7 @@ def resolve_comparison_output_dir(
     algorithm_names: list[str],
 ) -> Path:
 
+    """Resolve the output directory for a comparison run."""
     base_output_dir = Path(output_arg) if output_arg else project_root / DEFAULT_COMPARISON_OUTPUT_REL_PATH
     comparison_dir = base_output_dir / build_comparison_folder_name(algorithm_names) / dataset_type
 
@@ -326,9 +340,11 @@ def _create_representative_comparison_image(
         return
 
     def _normalize_image_name(value: str) -> str:
+        """Normalize an image name for matching and caching."""
         return Path(value).stem
 
     def _extract_dataset_name(value: str) -> str:
+        """Extract a dataset name from the provided value."""
         stem = _normalize_image_name(value)
         base = stem.split('__', 1)[0]
         parts = base.rsplit('_', 1)
@@ -506,6 +522,7 @@ def _create_representative_comparison_image(
 
     # Crop patches
     def _crop(img_arr):
+        """Crop the array to a displayable range."""
         if img_arr.ndim == 2:
             return img_arr[best_top:best_top+ps, best_left:best_left+ps]
         return img_arr[best_top:best_top+ps, best_left:best_left+ps, :]
@@ -516,6 +533,7 @@ def _create_representative_comparison_image(
 
     # Build figure with labels (closer to standard side-by-side comparison reference layouts)
     def _to_rgb(arr):
+        """Convert the array to RGB for display."""
         if arr.ndim == 2:
             return np.stack([arr] * 3, axis=2)
         if arr.shape[2] == 3:
@@ -571,6 +589,7 @@ def _create_representative_comparison_image(
 
 def parse_sigma_range(sigma_range_arg: str) -> list[float]:
 
+    """Parse a sigma range string into numeric values."""
     values = [item.strip() for item in sigma_range_arg.split(',') if item.strip()]
     if len(values) != 3:
         raise ValueError("--sigma-range must be in the format: start,end,step")
@@ -609,6 +628,7 @@ def run_sigma_range(
     output_dir: Path,
 ) -> int:
 
+    """Run denoising across a sweep of sigma values."""
     import csv
     import numpy as np
     import matplotlib.pyplot as plt
@@ -780,6 +800,7 @@ def run_sigma_range(
 # Define all the command-line argument options
 def parse_args() -> argparse.Namespace:
 
+    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         description='Modular Image Denoising Evaluation Framework',
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -938,6 +959,7 @@ Examples:
 def build_algorithm_params(algorithm_name: str, args: argparse.Namespace, dataset_type: str | None = None) -> dict:
 
     # Allow dataset-specific overrides (e.g., different pretrained weights for real-world)
+    """Build the parameter dictionary for the selected algorithm."""
     model_override: str | None = None
     if dataset_type == 'real-world':
         if algorithm_name == 'nafnet':
@@ -982,6 +1004,7 @@ def build_algorithm_params(algorithm_name: str, args: argparse.Namespace, datase
 # The main entry point for CLI
 def main() -> int:
     
+    """Run the script entry point."""
     args = parse_args()
     
     # Determine dataset type

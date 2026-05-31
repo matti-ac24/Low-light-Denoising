@@ -13,6 +13,7 @@ class NLMeansDenoiser(BaseDenoiser):
     def __init__(self, h: Optional[float] = None, patch_size: int = 5, patch_distance: int = 6, 
                  fast_mode: bool = True, sigma: Optional[float] = None) -> None:
         
+        """Initialize the object with the provided settings."""
         super().__init__(h=h, patch_size=patch_size, patch_distance=patch_distance,
                         fast_mode=fast_mode, sigma=sigma)
         self.h = h
@@ -25,6 +26,7 @@ class NLMeansDenoiser(BaseDenoiser):
     def denoise(self, noisy_image: np.ndarray) -> np.ndarray:
 
         # Ensure float format
+        """Denoise the provided image and return the result."""
         noisy_image = img_as_float(noisy_image)
         
         # Estimate sigma if not provided

@@ -12,6 +12,7 @@ DEFAULT_OUTPUT_DIR = PROJECT_ROOT / 'data' / 'SIDD_small_real_world' / 'test'
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         description='Reorganize SIDD Small scene folders into clean/noisy pairs for real-world evaluation.'
     )
@@ -36,6 +37,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def _ensure_output_layout(output_dir: Path, overwrite: bool) -> tuple[Path, Path]:
+    """Ensure the output directory layout exists and is writable."""
     if output_dir.exists() and overwrite:
         shutil.rmtree(output_dir)
 
@@ -55,6 +57,7 @@ def _ensure_output_layout(output_dir: Path, overwrite: bool) -> tuple[Path, Path
 
 
 def _collect_scene_pairs(scene_dir: Path) -> list[tuple[Path, Path, str]]:
+    """Collect paired NOISY/GT files for a SIDD scene."""
     gt_map: dict[str, Path] = {}
     noisy_map: dict[str, Path] = {}
 
@@ -72,6 +75,7 @@ def _collect_scene_pairs(scene_dir: Path) -> list[tuple[Path, Path, str]]:
 
 
 def reorganize_sidd_small(source_dir: Path, output_dir: Path, overwrite: bool = False) -> Path:
+    """Perform the reorganize sidd small step."""
     if not source_dir.exists():
         raise FileNotFoundError(f'Source directory not found: {source_dir}')
 
@@ -127,6 +131,7 @@ def reorganize_sidd_small(source_dir: Path, output_dir: Path, overwrite: bool = 
 
 
 def main() -> int:
+    """Run the script entry point."""
     args = parse_args()
     reorganize_sidd_small(
         source_dir=args.source_dir,

@@ -31,6 +31,7 @@ class NoisyPatchDataset(Dataset):
         sigma_max: float,
         channels: int,
     ) -> None:
+        """Initialize the NoisyPatchDataset."""
         self.image_paths = image_paths
         self.patch_size = patch_size
         self.patches_per_image = patches_per_image
@@ -41,6 +42,7 @@ class NoisyPatchDataset(Dataset):
         self.images = [self._load_image(path) for path in self.image_paths]
 
     def _load_image(self, image_path: Path) -> np.ndarray:
+        """Load an image from disk and convert it to the expected layout."""
         image = img_as_float(io.imread(image_path)).astype(np.float32)
 
         if self.channels == 1:
@@ -60,9 +62,11 @@ class NoisyPatchDataset(Dataset):
         return np.clip(image, 0.0, 1.0)
 
     def __len__(self) -> int:
+        """Return the number of available items."""
         return len(self.images) * self.patches_per_image
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return a noisy synthetic patch and its clean target."""
         image = self.images[index % len(self.images)]
         channels, height, width = image.shape
 
@@ -85,6 +89,7 @@ class NoisyPatchDataset(Dataset):
 
 
 def resolve_device(device_arg: str) -> torch.device:
+    """Resolve the requested compute device."""
     if device_arg != 'auto':
         return torch.device(device_arg)
     if torch.cuda.is_available():
@@ -93,6 +98,7 @@ def resolve_device(device_arg: str) -> torch.device:
 
 
 def resolve_sigma_range(args: argparse.Namespace) -> tuple[float, float]:
+    """Resolve the sigma range used for training."""
     if args.sigma is not None:
         if args.sigma < 0 or args.sigma > 1:
             raise ValueError('--sigma must be in [0, 1]')
@@ -114,6 +120,7 @@ def resolve_sigma_range(args: argparse.Namespace) -> tuple[float, float]:
 
 
 def describe_model(model: torch.nn.Module, channels: int, patch_size: int, device: torch.device) -> str:
+    """Build a human-readable summary of the model."""
     total_params = sum(parameter.numel() for parameter in model.parameters())
     trainable_params = sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad)
     leaf_layers = sum(1 for module in model.modules() if len(list(module.children())) == 0)
@@ -137,6 +144,7 @@ def describe_model(model: torch.nn.Module, channels: int, patch_size: int, devic
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description='Train Residual U-Net denoiser')
 
     parser.add_argument('--dataset-path', type=str, required=True, help='Path to clean images folder')
@@ -172,6 +180,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    """Run the script entry point."""
     args = parse_args()
 
     random.seed(args.seed)

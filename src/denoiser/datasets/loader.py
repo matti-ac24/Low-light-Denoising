@@ -14,6 +14,7 @@ class DatasetLoader:
         noise_sigma: float = 0.1,
     ) -> None:
         
+        """Initialize the object with the provided settings."""
         self.dataset_type = dataset_type.lower()
         self.dataset_path = Path(dataset_path) if dataset_path else None
         self.noise_sigma = noise_sigma
@@ -37,6 +38,7 @@ class DatasetLoader:
     # Load images based on dataset type
     def load_images(self) -> list[dict[str, Any]]:
 
+        """Load the images for the selected dataset split."""
         if self._cached_images is not None:
             return self._cached_images
     
@@ -55,6 +57,7 @@ class DatasetLoader:
     # Load built-in test images from scikit-image
     def _load_test_images(self) -> list[dict[str, Any]]:
     
+        """Load the test images from the dataset root."""
         from ..utils.noise import add_awgn
         
         test_images = []
@@ -84,6 +87,7 @@ class DatasetLoader:
     # Load images and add synthetic noise
     def _load_synthetic_images(self) -> list[dict[str, Any]]:
     
+        """Load the synthetic benchmark images from disk."""
         from ..utils.noise import add_awgn
         import re
         
@@ -121,6 +125,7 @@ class DatasetLoader:
     # Load real-world noisy images with paired clean references from clean/ and noisy/ subdirectories
     def _load_real_world_images(self) -> list[dict[str, Any]]:
     
+        """Load the paired real-world images from disk."""
         import re
         
         images = []
@@ -164,4 +169,5 @@ class DatasetLoader:
 # Factory function to get a dataset loader
 def get_dataset_loader(dataset_type: str, **kwargs: Any) -> DatasetLoader:
 
+    """Return the dataset loader for the requested split."""
     return DatasetLoader(dataset_type, **kwargs)

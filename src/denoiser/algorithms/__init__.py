@@ -23,6 +23,7 @@ ALGORITHMS = {
 # Get the denoising algorithm class by name
 def get_algorithm(name: str) -> Type[BaseDenoiser]:
 
+    """Return the denoiser class for the requested algorithm name."""
     name_lower = name.lower()
     if name_lower not in ALGORITHMS:
         available = ', '.join(ALGORITHMS.keys())

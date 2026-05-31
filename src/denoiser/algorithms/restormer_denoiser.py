@@ -17,23 +17,27 @@ def _build_restormer(
     heads: tuple[int, int, int, int] = (1, 2, 4, 8),
     ffn_expansion: float = 2.66,
 ):
+    """Build the Restormer model used by the denoiser wrapper."""
     import torch
     import torch.nn as nn
     import torch.nn.functional as F
 
     class _LayerNorm2d(nn.Module):
         def __init__(self, channels: int) -> None:
+            """Initialize the object with the provided settings."""
             super().__init__()
             self.weight = nn.Parameter(torch.ones(channels))
             self.bias = nn.Parameter(torch.zeros(channels))
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
+            """Run the forward pass for this block."""
             x = x.permute(0, 2, 3, 1)
             x = F.layer_norm(x, (x.shape[-1],), self.weight, self.bias)
             return x.permute(0, 3, 1, 2)
 
     class _FeedForward(nn.Module):
         def __init__(self, dim: int, expansion: float) -> None:
+            """Initialize the object with the provided settings."""
             super().__init__()
             hidden = int(dim * expansion)
             self.project_in = nn.Conv2d(dim, hidden * 2, kernel_size=1, bias=False)
@@ -49,6 +53,7 @@ def _build_restormer(
             self.project_out = nn.Conv2d(hidden, dim, kernel_size=1, bias=False)
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
+            """Run the forward pass for this block."""
             x = self.project_in(x)
             x1, x2 = self.dwconv(x).chunk(2, dim=1)
             x = torch.nn.functional.gelu(x1) * x2
@@ -56,6 +61,7 @@ def _build_restormer(
 
     class _Attention(nn.Module):
         def __init__(self, dim: int, num_heads: int) -> None:
+            """Initialize the object with the provided settings."""
             super().__init__()
             if dim % num_heads != 0:
                 raise ValueError(f'dim={dim} must be divisible by num_heads={num_heads}')
@@ -75,6 +81,7 @@ def _build_restormer(
             self.project_out = nn.Conv2d(dim, dim, kernel_size=1, bias=False)
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
+            """Run the forward pass for this block."""
             b, c, h, w = x.shape
             qkv = self.qkv_dwconv(self.qkv(x))
             q, k, v = qkv.chunk(3, dim=1)
@@ -96,6 +103,7 @@ def _build_restormer(
 
     class _TransformerBlock(nn.Module):
         def __init__(self, dim: int, num_heads: int, expansion: float) -> None:
+            """Initialize the object with the provided settings."""
             super().__init__()
             self.norm1 = _LayerNorm2d(dim)
             self.attn = _Attention(dim, num_heads)
@@ -103,32 +111,39 @@ def _build_restormer(
             self.ffn = _FeedForward(dim, expansion)
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
+            """Run the forward pass for this block."""
             x = x + self.attn(self.norm1(x))
             x = x + self.ffn(self.norm2(x))
             return x
 
     class _OverlapPatchEmbed(nn.Module):
         def __init__(self, inp_channels: int, dim: int) -> None:
+            """Initialize the object with the provided settings."""
             super().__init__()
             self.proj = nn.Conv2d(inp_channels, dim, kernel_size=3, stride=1, padding=1, bias=False)
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
+            """Run the forward pass for this block."""
             return self.proj(x)
 
     class _Downsample(nn.Module):
         def __init__(self, channels: int) -> None:
+            """Initialize the object with the provided settings."""
             super().__init__()
             self.body = nn.Conv2d(channels, channels // 2, kernel_size=3, stride=1, padding=1, bias=False)
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
+            """Run the forward pass for this block."""
             return torch.nn.functional.pixel_unshuffle(self.body(x), 2)
 
     class _Upsample(nn.Module):
         def __init__(self, channels: int) -> None:
+            """Initialize the object with the provided settings."""
             super().__init__()
             self.body = nn.Conv2d(channels, channels * 2, kernel_size=3, stride=1, padding=1, bias=False)
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
+            """Run the forward pass for this block."""
             return torch.nn.functional.pixel_shuffle(self.body(x), 2)
 
     class Restormer(nn.Module):
@@ -140,6 +155,7 @@ def _build_restormer(
             stage_heads: tuple[int, int, int, int],
             expansion: float,
         ) -> None:
+            """Initialize the object with the provided settings."""
             super().__init__()
 
             self.patch_embed = _OverlapPatchEmbed(channels, dim)
@@ -187,6 +203,7 @@ def _build_restormer(
             self.output = nn.Conv2d(dim * 2, channels, kernel_size=3, stride=1, padding=1, bias=False)
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
+            """Run the forward pass for this block."""
             inp = x
 
             level1 = self.encoder_level1(self.patch_embed(inp))
@@ -236,6 +253,7 @@ class RestormerDenoiser(BaseDenoiser):
         model_path: Optional[str] = None,
     ) -> None:
         # Resolve model path: allow override (e.g., real-world pretrained weights)
+        """Initialize the object with the provided settings."""
         if model_path is None:
             resolved_path = Path(__file__).resolve().parents[3] / 'models' / 'weights' / 'restormer.pth'
         else:
@@ -262,6 +280,7 @@ class RestormerDenoiser(BaseDenoiser):
         self._architecture_printed = False
 
     def _infer_checkpoint_channels(self, state_dict: dict) -> int:
+        """Infer the channel count from a checkpoint state dict."""
         in_key = 'patch_embed.proj.weight'
         out_key = 'output.weight'
 
@@ -282,6 +301,7 @@ class RestormerDenoiser(BaseDenoiser):
         return in_channels
 
     def _resolve_device(self):
+        """Resolve the best available device for inference."""
         import torch
 
         if self.device != 'auto':
@@ -293,6 +313,7 @@ class RestormerDenoiser(BaseDenoiser):
         return torch.device('cpu')
 
     def _load_model(self, channels: int):
+        """Load the model checkpoint and move it to the target device."""
         import torch
 
         if self._model is not None and self._model_channels == channels:
@@ -343,6 +364,7 @@ class RestormerDenoiser(BaseDenoiser):
         return model
 
     def denoise(self, noisy_image: np.ndarray) -> np.ndarray:
+        """Denoise the provided image and return the result."""
         import torch
         import torch.nn.functional as F
 
@@ -379,6 +401,7 @@ class RestormerDenoiser(BaseDenoiser):
 
         # Ensures the input height/width are multiples of 8 by reflect-padding the right/bottom edges
         def _forward_with_padding(input_tensor: torch.Tensor) -> torch.Tensor:
+            """Perform the forward with padding helper step."""
             _, _, in_h, in_w = input_tensor.shape
             pad_h = (8 - (in_h % 8)) % 8
             pad_w = (8 - (in_w % 8)) % 8
@@ -392,6 +415,7 @@ class RestormerDenoiser(BaseDenoiser):
 
         # Breaks large images into overlapping tiles to fit GPU memory and blends overlaps
         def _tiled_inference(input_tensor: torch.Tensor, tile_size: int = 256, overlap: int = 32) -> torch.Tensor:
+            """Perform the tiled inference helper step."""
             _, _, full_h, full_w = input_tensor.shape
             if full_h <= tile_size and full_w <= tile_size:
                 return _forward_with_padding(input_tensor)

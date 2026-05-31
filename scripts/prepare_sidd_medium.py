@@ -15,6 +15,7 @@ SIDD_PAIR_RE = re.compile(r'^(?P<scene>\d+)_(?P<tag>NOISY|GT)_(?P<rest>.+)$', re
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         description='Prepare SIDD Medium for scene-level training and evaluation splits.'
     )
@@ -57,6 +58,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def _load_scene_names(source_root: Path) -> list[str]:
+    """Load scene names from the source dataset root."""
     scene_list_file = source_root / 'Scene_Instances.txt'
     if scene_list_file.exists():
         scene_names = [line.strip() for line in scene_list_file.read_text(encoding='utf-8').splitlines() if line.strip()]
@@ -74,6 +76,7 @@ def _load_scene_names(source_root: Path) -> list[str]:
 
 
 def _discover_kaggle_source_root() -> Path:
+    """Discover the SIDD Medium root under Kaggle input."""
     kaggle_input_root = Path('/kaggle/input')
     if not kaggle_input_root.exists():
         raise FileNotFoundError('Kaggle input directory not found at /kaggle/input')
@@ -105,6 +108,7 @@ def _discover_kaggle_source_root() -> Path:
 
 
 def _in_notebook() -> bool:
+    """Detect whether the script is running in a notebook."""
     try:
         shell = get_ipython()  # type: ignore[name-defined]
     except NameError:
@@ -113,6 +117,7 @@ def _in_notebook() -> bool:
 
 
 def _split_scene_names(scene_names: list[str], train_ratio: float, seed: int) -> tuple[list[str], list[str]]:
+    """Split scene names into training and test sets."""
     if not 0.0 < train_ratio < 1.0:
         raise ValueError('--train-ratio must be strictly between 0 and 1')
 
@@ -165,6 +170,7 @@ def _collect_scene_pairs(scene_dir: Path) -> list[tuple[Path, Path, str]]:
 
 
 def _ensure_empty_dir(path: Path, overwrite: bool) -> None:
+    """Create an empty output directory, replacing it if requested."""
     if path.exists():
         if not overwrite:
             raise FileExistsError(
@@ -175,6 +181,7 @@ def _ensure_empty_dir(path: Path, overwrite: bool) -> None:
 
 
 def _materialize_file(source: Path, destination: Path, link_mode: str) -> None:
+    """Materialize a source file using the selected link mode."""
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists() or destination.is_symlink():
         destination.unlink()
@@ -199,6 +206,7 @@ def _prepare_split(
     link_mode: str,
     manifest_rows: list[dict[str, str]],
 ) -> None:
+    """Prepare one SIDD dataset split and record its manifest rows."""
     split_root = output_root / split_name
     paired_root = split_root
     clean_root = split_root / 'clean'
@@ -319,6 +327,7 @@ def prepare_sidd_medium(
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the script entry point."""
     args = parse_args(argv)
     prepare_sidd_medium(
         source_root=args.source_root,

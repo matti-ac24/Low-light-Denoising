@@ -17,17 +17,20 @@ def _build_nafnet(
     middle_blocks: int = 4,
     expansion: int = 2,
 ):
+    """Build the NAFNet model used by the denoiser wrapper."""
     import torch
     import torch.nn as nn
 
     class _LayerNorm2d(nn.Module):
         def __init__(self, channels: int, eps: float = 1e-6) -> None:
+            """Initialize the object with the provided settings."""
             super().__init__()
             self.weight = nn.Parameter(torch.ones(1, channels, 1, 1))
             self.bias = nn.Parameter(torch.zeros(1, channels, 1, 1))
             self.eps = eps
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
+            """Run the forward pass for this block."""
             mean = x.mean(dim=1, keepdim=True)
             variance = x.var(dim=1, keepdim=True, unbiased=False)
             normalized = (x - mean) / torch.sqrt(variance + self.eps)
@@ -35,11 +38,13 @@ def _build_nafnet(
 
     class _SimpleGate(nn.Module):
         def forward(self, x: torch.Tensor) -> torch.Tensor:
+            """Run the forward pass for this block."""
             first_half, second_half = torch.chunk(x, 2, dim=1)
             return first_half * second_half
 
     class _NAFBlock(nn.Module):
         def __init__(self, channels: int) -> None:
+            """Initialize the object with the provided settings."""
             super().__init__()
 
             hidden_channels = channels * expansion
@@ -72,6 +77,7 @@ def _build_nafnet(
             self.gamma = nn.Parameter(torch.zeros(1, channels, 1, 1))
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
+            """Run the forward pass for this block."""
             residual = x
             x = self.norm1(x)
             x = self.pw_conv1(x)
@@ -90,15 +96,18 @@ def _build_nafnet(
 
     class _ResidualGroup(nn.Module):
         def __init__(self, channels: int, block_count: int) -> None:
+            """Initialize the object with the provided settings."""
             super().__init__()
             self.blocks = nn.Sequential(*[_NAFBlock(channels) for _ in range(block_count)])
             self.conv = nn.Conv2d(channels, channels, kernel_size=3, padding=1)
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
+            """Run the forward pass for this block."""
             return x + self.conv(self.blocks(x))
 
     class NAFNet(nn.Module):
         def __init__(self, channels: int, features: int) -> None:
+            """Initialize the object with the provided settings."""
             super().__init__()
 
             self.intro = nn.Conv2d(channels, features, kernel_size=3, padding=1)
@@ -122,6 +131,7 @@ def _build_nafnet(
             self.out_conv = nn.Conv2d(features, channels, kernel_size=1)
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
+            """Run the forward pass for this block."""
             shallow = self.intro(x)
 
             enc1 = self.enc1(shallow)
@@ -154,6 +164,7 @@ class NAFNetDenoiser(BaseDenoiser):
         model_path: Optional[str] = None,
     ) -> None:
         # Resolve model path: allow override (e.g., real-world pretrained weights)
+        """Initialize the object with the provided settings."""
         if model_path is None:
             resolved_path = Path(__file__).resolve().parents[3] / 'models' / 'weights' / 'nafnet.pth'
         else:
@@ -180,6 +191,7 @@ class NAFNetDenoiser(BaseDenoiser):
         self._architecture_printed = False
 
     def _infer_checkpoint_channels(self, state_dict: dict) -> int:
+        """Infer the channel count from a checkpoint state dict."""
         intro_key = 'intro.weight'
         out_key = 'out_conv.weight'
 
@@ -200,6 +212,7 @@ class NAFNetDenoiser(BaseDenoiser):
         return in_channels
 
     def _resolve_device(self):
+        """Resolve the best available device for inference."""
         import torch
 
         if self.device != 'auto':
@@ -211,6 +224,7 @@ class NAFNetDenoiser(BaseDenoiser):
         return torch.device('cpu')
 
     def _load_model(self, channels: int):
+        """Load the model checkpoint and move it to the target device."""
         import torch
 
         if self._model is not None and self._model_channels == channels:
@@ -261,6 +275,7 @@ class NAFNetDenoiser(BaseDenoiser):
         return model
 
     def denoise(self, noisy_image: np.ndarray) -> np.ndarray:
+        """Denoise the provided image and return the result."""
         import torch
         import torch.nn.functional as F
 
@@ -297,6 +312,7 @@ class NAFNetDenoiser(BaseDenoiser):
 
         # Ensures the input height/width are multiples of 8 by reflect-padding the right/bottom edges
         def _forward_with_padding(input_tensor: torch.Tensor) -> torch.Tensor:
+            """Perform the forward with padding helper step."""
             _, _, in_h, in_w = input_tensor.shape
             pad_h = (4 - (in_h % 4)) % 4
             pad_w = (4 - (in_w % 4)) % 4
@@ -310,6 +326,7 @@ class NAFNetDenoiser(BaseDenoiser):
 
         # Breaks large images into overlapping tiles to fit GPU memory and blends overlaps
         def _tiled_inference(input_tensor: torch.Tensor, tile_size: int = 512, overlap: int = 32) -> torch.Tensor:
+            """Perform the tiled inference helper step."""
             _, _, full_h, full_w = input_tensor.shape
             if full_h <= tile_size and full_w <= tile_size:
                 return _forward_with_padding(input_tensor)
