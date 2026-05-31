@@ -74,6 +74,16 @@ python -m denoiser --real-world bm3d
 
 Note: the CLI default for `--real-world` is the prepared SIDD small test set at `data/SIDD_small_real_world/test`. See "Real-world evaluation and SIDD preparation" below for how to prepare or override this.
 
+The prepared real-world folder is generated from the raw SIDD Small source tree:
+
+- `data/SIDD_Small_sRGB_Only/` is the original SIDD Small dataset source. It is not read by the runtime CLI directly; it is used by the preparation script below.
+- `data/SIDD_small_real_world/` is the flattened runtime layout consumed by `--real-world`.
+
+The synthetic benchmark folders follow the same pattern:
+
+- `data/benchmark/clean/` is the runtime input used by `--synthetic` and the training scripts.
+- `data/external/BSDS500-master/` is the raw BSDS500 source tree kept for reference and dataset preparation; the code reads benchmark images from the prepared `data/benchmark/clean/` layout, not from this raw external copy.
+
 ### Algorithm Parameters
 
 BM3D:
@@ -120,6 +130,19 @@ This writes to a canonical comparison folder (algorithm order does not matter), 
 
 `results/compare/bm3d_vs_nafnet_vs_nl-means_vs_resunet/synthetic/`
 
+If you only want to rebuild the representative side-by-side image from already saved comparison outputs, use `--rep-only`:
+
+```bash
+python -m denoiser --real-world --compare nafnet restormer \
+    --rep-only \
+    --rep-seed 19 \
+    --verbose
+```
+
+What it does:
+- `--rep-only` skips the denoising/evaluation pass and rebuilds only the representative comparison image from outputs already present under the comparison folder.
+- `--rep-seed 19` makes the image selection deterministic. Changing the seed changes which cached image is chosen as the representative example.
+
 ### Sigma Range Mode
 
 ```bash
@@ -134,9 +157,7 @@ python -m denoiser --synthetic --compare bm3d nl-means resunet nafnet \
 
 - `--test` - Use built-in test images
 - `--synthetic` - Add synthetic noise to images from `./data/benchmark/clean/test`
-- `--real-world` - Use real-world noisy/clean pairs from `./data/demo_pair`
- - `--real-world` - Use real-world noisy/clean pairs (default: `data/SIDD_small_real_world/test`).
-     To evaluate against a different prepared real-world test set (for example SIDD Medium prepared elsewhere), pass `--dataset-path /path/to/your/test`.
+- `--real-world` - Use real-world noisy/clean pairs from `data/SIDD_small_real_world/test` by default. To evaluate against a different prepared real-world test set, pass `--dataset-path /path/to/your/test`.
 
 ### Algorithm Selection
 
@@ -160,6 +181,8 @@ python -m denoiser --synthetic --compare bm3d nl-means resunet nafnet \
 - `--output DIR` - Optional base directory for comparison and sigma-range results. For comparison mode, outputs are written under `<output>/<algorithm-combination>/<dataset-type>/`. Without `--output`, default base is `<project-root>/results/compare`.
 - `--show-plot` - Display plots interactively
 - `--verbose` - Show detailed output
+- `--rep-only` - Rebuild only the representative comparison image from already saved outputs.
+- `--rep-seed INT` - Seed used to choose which cached image becomes the representative example.
 
 Comparison mode now processes the full available dataset for the selected dataset type and always saves results under `images/`, `metrics/`, and `plots/` inside the comparison folder.
 
@@ -215,6 +238,8 @@ Each comparison dataset folder contains:
 - `images/`
 - `metrics/`
 - `plots/`
+
+Comparison runs also maintain a `cache/` subtree under the comparison output directory. This cache mirrors the single-run layout so the CLI can reuse already computed per-image results instead of rerunning denoising. It is primarily there to make comparison runs faster and to keep them usable when the comparison output location is the only writable path. If the cache is removed, it will be rebuilt on the next comparison run.
 
 Typical generated files include:
 
@@ -295,10 +320,17 @@ python scripts/prepare_sidd_small_real_world.py  # writes to data/SIDD_small_rea
 What the script does:
 - Scans the SIDD Small scene folders for matching `GT_SRGB_*` and `NOISY_SRGB_*` images.
 - Copies paired files into `data/SIDD_small_real_world/test/clean` and `/noisy` and writes `manifest.csv`.
+- `data/SIDD_Small_sRGB_Only/Data` is the raw source tree; the CLI does not read it directly.
 
 Defaults and CLI behavior:
 - The CLI `--real-world` option uses the default path `data/SIDD_small_real_world/test` unless overridden with `--dataset-path`.
-- If you prepared SIDD Medium elsewhere (e.g., on Kaggle), run the CLI with `--dataset-path /path/to/sidd_medium_root/test` to evaluate on that dataset instead of SIDD Small.
+- If you prepared SIDD Medium elsewhere (e.g., on Kaggle), run the CLI with `--dataset-path /path/to/sidd_medium_root/test` to evaluate on that dataset instead of SIDD Small. The SIDD Medium data itself is not bundled in this repo because it is typically prepared externally for storage and compute reasons.
+
+Benchmark data layout notes:
+- `data/benchmark/clean/test` is the default synthetic inference input used by the CLI.
+- `data/benchmark/clean/train` and `data/benchmark/clean/val` are used when you point the training scripts at those splits.
+- `data/benchmark/clean/one_image` is a convenience subset for quick checks and examples.
+- `data/external/BSDS500-master` is the raw BSDS500 source copy kept alongside the prepared benchmark data for reference.
 
 Using your Kaggle-trained checkpoints:
 - The denoiser constructors accept a `model_path` argument programmatically. Example:
